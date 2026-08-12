@@ -1,0 +1,205 @@
+Describe 'New-TreeCopyPlan' {
+
+    It 'marks new files as create' {
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'one'
+        $null = New-TestFile -Path (Join-Path $source 'nested/b.lua') -Content 'two'
+
+        $plan = @(New-TreeCopyPlan -Source $source -Destination (Join-Path $script:TestDrive 'dest'))
+        Assert-Equal 2 $plan.Count
+        Assert-Equal @('create', 'create') @($plan.Kind)
+    }
+
+    It 'marks existing files as overwrite, or skip when overwriting is off' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'new'
+        $null = New-TestFile -Path (Join-Path $dest 'a.lua') -Content 'old'
+
+        Assert-Equal 'overwrite' @(New-TreeCopyPlan -Source $source -Destination $dest)[0].Kind
+        $skipped = @(New-TreeCopyPlan -Source $source -Destination $dest -Overwrite $false)[0]
+        Assert-Equal 'skip' $skipped.Kind
+        Assert-Equal 'already exists' $skipped.Note
+    }
+
+    It 'leaves junk files out of the plan' {
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'one'
+        $null = New-TestFile -Path (Join-Path $source 'Thumbs.db') -Content 'junk'
+        $null = New-TestFile -Path (Join-Path $source 'sub/.DS_Store') -Content 'junk'
+
+        $plan = @(New-TreeCopyPlan -Source $source -Destination (Join-Path $script:TestDrive 'dest'))
+        Assert-Equal 1 $plan.Count
+        Assert-True $plan[0].Destination.EndsWith('a.lua')
+    }
+
+    It 'plans nothing for a source folder that does not exist' {
+        $plan = @(New-TreeCopyPlan -Source (Join-Path $script:TestDrive 'nope') -Destination (Join-Path $script:TestDrive 'dest'))
+        Assert-Equal 0 $plan.Count
+    }
+}
+
+Describe 'New-SingleFileCopyPlan' {
+
+    It 'plans nothing when the source file is missing' {
+        $plan = @(New-SingleFileCopyPlan -Source (Join-Path $script:TestDrive 'nope.txt') -Destination (Join-Path $script:TestDrive 'out.txt'))
+        Assert-Equal 0 $plan.Count
+    }
+
+    It 'plans a create for a new destination' {
+        $source = New-TestFile -Path (Join-Path $script:TestDrive 'a.txt') -Content 'hello'
+        $plan = @(New-SingleFileCopyPlan -Source $source -Destination (Join-Path $script:TestDrive 'out/a.txt'))
+        Assert-Equal 'create' $plan[0].Kind
+        Assert-Equal 5 $plan[0].Size
+    }
+}
+
+Describe 'Invoke-FileActionPlan' {
+
+    It 'copies files and backs up what it overwrites' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'new content'
+        $null = New-TestFile -Path (Join-Path $install 'Interface/a.lua') -Content 'old content'
+
+        $plan = New-TreeCopyPlan -Source $source -Destination (Join-Path $install 'Interface')
+        $result = Invoke-FileActionPlan -Action $plan -InstallPath $install -Label 'copy_addons'
+
+        Assert-Equal 1 @($result.Performed).Count
+        Assert-Equal 'new content' (Get-Content -LiteralPath (Join-Path $install 'Interface/a.lua') -Raw)
+        Assert-True ($null -ne $result.BackupPath)
+        Assert-Equal 'old content' (Get-Content -LiteralPath (Join-Path $result.BackupPath 'Interface/a.lua') -Raw)
+    }
+
+    It 'writes nothing in preview mode' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'new'
+
+        $plan = New-TreeCopyPlan -Source $source -Destination (Join-Path $install 'Interface')
+        $result = Invoke-FileActionPlan -Action $plan -InstallPath $install -Label 'x' -PreviewOnly
+
+        Assert-Equal 0 @($result.Performed).Count
+        Assert-False (Test-Path -LiteralPath (Join-Path $install 'Interface'))
+    }
+
+    It 'refuses to write outside the selected client folder' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $source = New-TestFile -Path (Join-Path $script:TestDrive 'src.lua') -Content 'x'
+        $escape = New-FileAction -Kind 'create' -Source $source -Destination (Join-Path $script:TestDrive 'elsewhere.lua') -Size 1
+
+        Assert-Throws { Invoke-FileActionPlan -Action @($escape) -InstallPath $install -Label 'bad' } -Match 'outside'
+        Assert-False (Test-Path -LiteralPath (Join-Path $script:TestDrive 'elsewhere.lua'))
+    }
+
+    It 'writes generated content for actions with no source file' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $action = New-FileAction -Kind 'create' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "SET a `"1`"`n"
+
+        $null = Invoke-FileActionPlan -Action @($action) -InstallPath $install -Label 'config'
+        Assert-Equal "SET a `"1`"`n" (Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw)
+    }
+
+    It 'reports progress as it copies' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'a'
+        $null = New-TestFile -Path (Join-Path $source 'b.lua') -Content 'b'
+
+        $seen = [System.Collections.Generic.List[string]]::new()
+        $plan = New-TreeCopyPlan -Source $source -Destination (Join-Path $install 'Interface')
+        $null = Invoke-FileActionPlan -Action $plan -InstallPath $install -Label 'x' -OnProgress {
+            param($Done, $Total) $seen.Add("$Done/$Total")
+        }
+        Assert-Equal @('1/2', '2/2') @($seen)
+    }
+}
+
+Describe 'Backups' {
+
+    It 'restores the original files' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'new'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/a.lua') -Content 'original'
+
+        $plan = New-TreeCopyPlan -Source $source -Destination (Join-Path $install 'WTF')
+        $null = Invoke-FileActionPlan -Action $plan -InstallPath $install -Label 'step'
+
+        $backups = @(Get-PtrSetupBackup -InstallPath $install)
+        Assert-Equal 1 $backups.Count
+        Assert-Equal 1 $backups[0].FileCount
+        Assert-Equal 'step' $backups[0].Label
+
+        Assert-Equal 1 (Restore-PtrSetupBackup -InstallPath $install -BackupId $backups[0].Id)
+        Assert-Equal 'original' (Get-Content -LiteralPath (Join-Path $install 'WTF/a.lua') -Raw)
+    }
+
+    It 'lists nothing when no backup has been taken' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        Assert-Equal 0 @(Get-PtrSetupBackup -InstallPath $install).Count
+    }
+
+    It 'throws for an unknown backup id' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        Assert-Throws { Restore-PtrSetupBackup -InstallPath $install -BackupId 'nope' } -Match 'manifest'
+    }
+}
+
+Describe 'Helpers' {
+
+    It 'Test-PathWithin distinguishes inside from outside' {
+        Assert-True (Test-PathWithin -Path (Join-Path $script:TestDrive 'a/b') -Parent $script:TestDrive)
+        Assert-False (Test-PathWithin -Path (Split-Path -Parent $script:TestDrive) -Parent $script:TestDrive)
+    }
+
+    It 'Format-ByteSize reads like a file manager' {
+        Assert-Equal '0 B' (Format-ByteSize 0)
+        Assert-Equal '512 B' (Format-ByteSize 512)
+        Assert-Equal '2.0 KB' (Format-ByteSize 2048)
+    }
+
+    It 'Get-RelativeFile returns sorted relative paths' {
+        $null = New-TestFile -Path (Join-Path $script:TestDrive 'b.lua') -Content 'b'
+        $null = New-TestFile -Path (Join-Path $script:TestDrive 'a/c.lua') -Content 'c'
+        $files = @(Get-RelativeFile -Root $script:TestDrive)
+        Assert-Equal 2 $files.Count
+        Assert-True ($files[0].Relative -like 'a*')
+    }
+}
+
+Describe 'Cross-edition helpers' {
+
+    It 'Get-PathRelative strips the base folder' {
+        $base = Join-Path $script:TestDrive '_classic_ptr_'
+        $target = Join-Path $base 'WTF/Account/1/SavedVariables/x.lua'
+        $expected = @('WTF', 'Account', '1', 'SavedVariables', 'x.lua') -join [System.IO.Path]::DirectorySeparatorChar
+        Assert-Equal $expected (Get-PathRelative -Base $base -Path $target)
+    }
+
+    It 'Get-PathRelative refuses a path outside the base' {
+        Assert-Throws { Get-PathRelative -Base (Join-Path $script:TestDrive 'a') -Path (Join-Path $script:TestDrive 'b/c.lua') } -Match 'not inside'
+    }
+
+    It 'Write-TextFileNoBom writes no byte-order mark' {
+        $path = Join-Path $script:TestDrive 'Config.wtf'
+        Write-TextFileNoBom -Path $path -Content "SET a `"1`"`n"
+        $bytes = [System.IO.File]::ReadAllBytes($path)
+        Assert-Equal 83 $bytes[0]   # 'S', not 0xEF from a UTF-8 BOM
+    }
+
+    It 'a copied Config.wtf keeps its exact bytes' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $text = "SET gxWindow `"1`"`nSET realmList `"x`"`n"
+        $action = New-FileAction -Kind 'create' -Destination (Join-Path $install 'WTF/Config.wtf') -Content $text
+        $null = Invoke-FileActionPlan -Action @($action) -InstallPath $install -Label 'config'
+        Assert-Equal $text ([System.IO.File]::ReadAllText((Join-Path $install 'WTF/Config.wtf')))
+    }
+}

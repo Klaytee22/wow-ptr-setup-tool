@@ -1,12 +1,9 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
+# Build output from ps2exe or similar
 dist/
-.venv/
-venv/
-.pytest_cache/
-.ruff_cache/
-*.spec
+out/
+*.exe
+
+# Editor / OS noise
+.vscode/
 .DS_Store
+Thumbs.db

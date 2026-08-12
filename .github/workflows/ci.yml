@@ -7,28 +7,47 @@ on:
 
 jobs:
   test:
-    # Windows is where this tool actually runs, so it is part of the matrix rather
-    # than an afterthought — path handling is the whole job.
+    # Windows is where this tool runs, so it leads the matrix. Linux is there to
+    # keep the module honest about being front-end-free.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.12"]
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
+      - name: Test (PowerShell 7)
+        shell: pwsh
+        run: ./tests/Invoke-Tests.ps1
 
-      - name: Install
-        run: pip install -e ".[dev]"
+  test-windows-powershell:
+    # The double-click launcher runs Windows PowerShell 5.1, which is a
+    # different runtime with different gaps — it gets its own run.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Lint
-        run: ruff check .
+      - name: Test (Windows PowerShell 5.1)
+        shell: powershell
+        run: ./tests/Invoke-Tests.ps1
 
-      - name: Test
-        run: pytest -q
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $found = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
+          if ($found) {
+            $found | Format-Table -AutoSize
+            throw "PSScriptAnalyzer reported $($found.Count) error(s)."
+          }
+          Write-Host 'No errors.'

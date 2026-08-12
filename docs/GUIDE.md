@@ -1,7 +1,7 @@
 # The source guide
 
 This tool automates a written procedure. This file is where that procedure lives, so
-the step list in `src/ptrsetup/steps/library.py` can be checked against it rather than
+the step list in `Modules/PtrUiSetup/Steps.ps1` can be checked against it rather than
 against someone's memory.
 
 ## Status: not yet transcribed
@@ -13,9 +13,9 @@ The reference guide is a Reddit post in r/classicwowtbc:
 It has not been transcribed here yet — paste its text into the "Reference procedure"
 section below, then reconcile it against the implemented steps and delete this notice.
 
-Until that happens, the steps in `library.py` are built from the **standard, widely
+Until that happens, the steps in `Steps.ps1` are built from the **standard, widely
 documented PTR UI copy procedure**, not from that specific post. Each step carries a
-`source_note` explaining why it exists, and those notes are what the reconciliation
+`SourceNote` explaining why it exists, and those notes are what the reconciliation
 pass should replace with a pointer into the guide.
 
 ## Reference procedure
@@ -39,8 +39,8 @@ pass should replace with a pointer into the guide.
 
 When the guide text lands, walk it and confirm for each instruction:
 
-- [ ] Is there a step for it? If not, add one to `STEPS`.
-- [ ] Does the guide's ordering match the order in `STEPS`?
+- [ ] Is there a step for it? If not, add a `New-PtrSetupStep` entry to `$script:PtrSetupSteps`.
+- [ ] Does the guide's ordering match the order in `$script:PtrSetupSteps`?
 - [ ] Does the guide copy anything this tool does not (e.g. `chat-cache.txt`,
       `config-cache.wtf`, `bindings-cache.wtf`)? Those are options today — check the
       defaults match the guide's advice.
@@ -49,7 +49,7 @@ When the guide text lands, walk it and confirm for each instruction:
       copy it whole, capture that reason here before changing the behaviour.
 - [ ] Are any steps guide-specific to one expansion's PTR cycle (folder names,
       character-copy flow)? Those need to stay data-driven rather than hardcoded.
-- [ ] Replace each step's `source_note` with a reference into this file.
+- [ ] Replace each step's `SourceNote` with a reference into this file.
 
 ## Client folder names
 
@@ -69,5 +69,5 @@ PTR clients on the same `line` are what it pairs up automatically.
 | `_classic_era_ptr_` | Classic Era PTR | era | yes |
 | `_classic_era_beta_` | Classic Era Beta | era | yes |
 
-Blizzard adds folders over time; new ones go in `FLAVORS` in `src/ptrsetup/models.py`
-and need no other change.
+Blizzard adds folders over time; new ones go in `$script:WowFlavors` in
+`Modules/PtrUiSetup/Detect.ps1` and need no other change.

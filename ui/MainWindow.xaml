@@ -1,0 +1,248 @@
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="WoW PTR UI Setup"
+    Height="820" Width="1000" MinHeight="600" MinWidth="820"
+    WindowStartupLocation="CenterScreen"
+    Background="#12141A">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="Bg" Color="#12141A" />
+        <SolidColorBrush x:Key="Panel" Color="#1B1E27" />
+        <SolidColorBrush x:Key="Panel2" Color="#222634" />
+        <SolidColorBrush x:Key="Line" Color="#2F3546" />
+        <SolidColorBrush x:Key="Text" Color="#E7E9EF" />
+        <SolidColorBrush x:Key="Muted" Color="#98A0B3" />
+        <SolidColorBrush x:Key="Gold" Color="#F0C674" />
+        <SolidColorBrush x:Key="GoldDim" Color="#A98B45" />
+        <SolidColorBrush x:Key="Green" Color="#6FCF87" />
+        <SolidColorBrush x:Key="Amber" Color="#E3B341" />
+        <SolidColorBrush x:Key="Red" Color="#F07B7B" />
+        <SolidColorBrush x:Key="Blue" Color="#7AA7F0" />
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Panel}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="Margin" Value="0,0,0,14" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource Panel2}" />
+            <Setter Property="Foreground" Value="{StaticResource Text}" />
+            <Setter Property="BorderBrush" Value="{StaticResource Line}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource Gold}" />
+            <Setter Property="Foreground" Value="#22242C" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="BorderBrush" Value="{StaticResource GoldDim}" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#171A22" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="18,14">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Border Grid.Column="0" Background="{StaticResource Gold}" CornerRadius="6" Width="40" Height="40" Margin="0,0,12,0">
+                    <TextBlock Text="PTR" Foreground="#22242C" FontWeight="Bold" FontSize="13"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="WoW PTR UI Setup" FontSize="17" FontWeight="SemiBold" />
+                    <TextBlock Style="{StaticResource Hint}" Text="Copy your live UI, addons and settings onto the test client." />
+                </StackPanel>
+                <Button Grid.Column="2" x:Name="RescanButton" Content="Rescan folders" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <!-- Body -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="18,16">
+            <StackPanel>
+
+                <!-- 1. Clients -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="1 · Clients" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Pick the client you play on and the PTR client to set up." />
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource Hint}" Text="Copy from (live)" />
+                                <ComboBox x:Name="SourceInstallCombo" DisplayMemberPath="Display" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="&#x2192;" Foreground="{StaticResource GoldDim}" FontSize="18"
+                                       VerticalAlignment="Bottom" Margin="12,0,12,4" />
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource Hint}" Text="Copy to (PTR)" />
+                                <ComboBox x:Name="TargetInstallCombo" DisplayMemberPath="Display" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="InstallWarning" Foreground="{StaticResource Amber}" Margin="0,10,0,0" Visibility="Collapsed" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,10,0,0">
+                            <Button x:Name="BrowseButton" Content="Folder not listed? Browse…" Margin="0" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 2. Account and characters -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="2 · Account &amp; characters" />
+                        <TextBlock Style="{StaticResource Hint}" Text="Settings live under an account folder, then per character." />
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource Hint}" Text="Live account" />
+                                <ComboBox x:Name="SourceAccountCombo" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="&#x2192;" Foreground="{StaticResource GoldDim}" FontSize="18"
+                                       VerticalAlignment="Bottom" Margin="12,0,12,4" />
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource Hint}" Text="PTR account" />
+                                <ComboBox x:Name="TargetAccountCombo" />
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel x:Name="CharacterPanel" Margin="0,12,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 3. Steps -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="3 · Steps" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="Ticked steps run when you press Apply. Steps marked manual are yours to do — the tool checks them off once it can see they are done." />
+                        <StackPanel x:Name="StepsPanel" Margin="0,10,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 4. Options and safety -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="4 · Options &amp; safety" />
+                        <StackPanel Margin="0,8,0,0">
+                            <CheckBox x:Name="OverwriteOption" Content="Overwrite existing PTR files" Margin="0,4" />
+                            <CheckBox x:Name="MacrosOption" Content="Include macros and keybinds" Margin="0,4" />
+                            <CheckBox x:Name="ChatOption" Content="Include chat settings (chat-cache.txt)" Margin="0,4" />
+                            <CheckBox x:Name="OutOfDateOption" Content="Allow out-of-date addons (checkAddonVersion 0)" Margin="0,4" />
+                        </StackPanel>
+                        <Border Background="{StaticResource Panel2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                                CornerRadius="6" Padding="12" Margin="0,12,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Backups" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource Hint}"
+                                           Text="Every overwritten file is copied into _ptrsetup_backups inside the PTR folder before it is replaced. Restoring puts them all back." />
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox Grid.Column="0" x:Name="BackupCombo" DisplayMemberPath="Display" Margin="0" />
+                                    <Button Grid.Column="1" x:Name="RefreshBackupsButton" Content="Refresh" />
+                                    <Button Grid.Column="2" x:Name="RestoreButton" Content="Restore" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- Results -->
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="Results" />
+                        <TextBox x:Name="ResultsBox" Height="150" Margin="0,8,0,0"
+                                 Background="#171A22" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line}"
+                                 FontFamily="Consolas" FontSize="12" IsReadOnly="True"
+                                 VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="#171A22" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="18,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock x:Name="SummaryText" Style="{StaticResource Hint}" Text="Scanning…" />
+                    <ProgressBar x:Name="ProgressBar" Height="4" Margin="0,6,12,0" Minimum="0" Maximum="100"
+                                 Background="{StaticResource Panel2}" Foreground="{StaticResource Gold}" BorderThickness="0" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="PreviewButton" Content="Preview changes" />
+                    <Button x:Name="ApplyButton" Content="Apply selected steps" Style="{StaticResource PrimaryButton}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
