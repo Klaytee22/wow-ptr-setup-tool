@@ -86,6 +86,54 @@ Describe 'The window and its XAML' {
         }
     }
 
+    It 'puts every scrolling text box into multi-line mode' {
+        # A WPF TextBox without AcceptsReturn is single-line: text set on it
+        # renders on one row whatever newlines it contains, and the vertical
+        # scrollbar never shows. Both boxes here are read-only logs, so the only
+        # thing AcceptsReturn changes is whether they are readable.
+        [xml] $document = Get-Content -LiteralPath $xamlPath -Raw
+        foreach ($node in $document.SelectNodes('//*[local-name()="TextBox"]')) {
+            if ($node.GetAttribute('VerticalScrollBarVisibility') -ne 'Auto') { continue }
+            Assert-Equal 'True' $node.GetAttribute('AcceptsReturn') `
+                "TextBox $($node.GetAttribute('x:Name')) scrolls vertically but is still single-line."
+        }
+
+        # The file list the step cards build in code is the same shape.
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -match '\$list\.AcceptsReturn\s*=\s*\$true') `
+            'The planned-file list box needs AcceptsReturn or it renders on one line.'
+    }
+
+    It 'never puts a bare string into a list that displays a property' {
+        # DisplayMemberPath binds that property on every item. A plain string has
+        # no such property, so it renders as an empty row.
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -notmatch "Items\.Add\('") `
+            'Adding a string literal to a DisplayMemberPath list gives a blank entry — use an object with that property.'
+        Assert-True ($text -match 'PtrUiSetup\.SkipChoice') `
+            'The skip entry should be a typed object the mapping code can recognise.'
+    }
+
+    It 'runs every click handler inside the guard' {
+        # An exception escaping a WPF event handler is unhandled and closes the
+        # window, taking the user's selection with it. Found through the AST
+        # rather than a regex so single-line handlers are checked too.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $subscriptions = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+                    $node.Member.Value -in @('Add_Click', 'Add_SelectionChanged')
+                }, $true))
+
+        Assert-True ($subscriptions.Count -ge 12) "Expected to find the event handlers, found $($subscriptions.Count)."
+        foreach ($subscription in $subscriptions) {
+            $body = $subscription.Arguments[0].Extent.Text
+            Assert-True ($body -match 'Invoke-Guarded') `
+                ("An event handler is unguarded at line $($subscription.Extent.StartLineNumber): " +
+                    ($body.Trim() -split "`n")[0])
+        }
+    }
+
     It 'keeps the step ids in the module and the launcher in step' {
         # -ListSteps is the console path through the same registry the window renders.
         $ids = @((Get-PtrSetupStep).Id)

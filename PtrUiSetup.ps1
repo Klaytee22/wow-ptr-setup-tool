@@ -139,6 +139,50 @@ function Get-Brush {
     return [System.Windows.Media.BrushConverter]::new().ConvertFromString($Colour)
 }
 
+function New-SkipChoice {
+    <#
+    .SYNOPSIS
+        The "leave this character alone" entry in a character mapping row.
+    #>
+    return [pscustomobject]@{
+        PSTypeName = 'PtrUiSetup.SkipChoice'
+        Display    = '— skip this character —'
+    }
+}
+
+function Test-SkipChoice {
+    <#
+    .SYNOPSIS
+        True when a mapping row's selection is not a character to copy from.
+    #>
+    param($Item)
+
+    if ($null -eq $Item) { return $true }
+    if ($Item -is [string]) { return $true }
+    if (@($Item.PSObject.TypeNames) -contains 'PtrUiSetup.SkipChoice') { return $true }
+    # Decided on shape as well as type name: what comes back out of a WPF
+    # ComboBox is not guaranteed to still be wrapped in the PSObject that
+    # carries the type name, and mapping the sentinel as if it were a character
+    # would fail later, further from the cause.
+    return (-not (@($Item.PSObject.Properties.Name) -contains 'Account'))
+}
+
+function Invoke-Guarded {
+    <#
+    .SYNOPSIS
+        Run a click handler without letting a failure take the window down.
+
+    .DESCRIPTION
+        An exception escaping a WPF event handler reaches the dispatcher
+        unhandled and closes the app, losing whatever the user had selected. The
+        Results box is a better place for it.
+    #>
+    param([Parameter(Mandatory)] [scriptblock] $Body)
+
+    try { & $Body }
+    catch { Write-Result "[fail] $($_.Exception.Message)" }
+}
+
 # --------------------------------------------------------------------------
 # Rendering
 # --------------------------------------------------------------------------
@@ -257,7 +301,10 @@ function Update-CharacterPanel {
         $combo.Margin = New-Object System.Windows.Thickness 0
         $combo.VerticalAlignment = 'Center'
         $combo.Tag = $target
-        $null = $combo.Items.Add('— skip this character —')
+        # DisplayMemberPath resolves against every item, and a plain string has
+        # no Display property — it would render as an empty row. The sentinel
+        # carries one, and a type name Sync-CharacterMap can recognise.
+        $null = $combo.Items.Add((New-SkipChoice))
         $combo.SelectedIndex = 0
         foreach ($source in $sources) {
             $null = $combo.Items.Add($source)
@@ -265,7 +312,7 @@ function Update-CharacterPanel {
                 $combo.SelectedItem = $source
             }
         }
-        $combo.Add_SelectionChanged({ if (-not $script:Suppress) { Sync-CharacterMap } })
+        $combo.Add_SelectionChanged({ if (-not $script:Suppress) { Invoke-Guarded { Sync-CharacterMap } } })
         [System.Windows.Controls.Grid]::SetColumn($combo, 1)
         $null = $row.Children.Add($combo)
         $null = $ui.CharacterPanel.Children.Add($row)
@@ -283,8 +330,7 @@ function Sync-CharacterMap {
         foreach ($control in $child.Children) {
             if ($control -isnot [System.Windows.Controls.ComboBox]) { continue }
             $selected = $control.SelectedItem
-            if ($selected -is [string]) { continue }
-            if ($null -eq $selected) { continue }
+            if (Test-SkipChoice $selected) { continue }
             $pairs.Add([pscustomobject]@{ Source = $selected; Target = $control.Tag })
         }
     }
@@ -299,7 +345,10 @@ function Update-Steps {
     foreach ($step in (Get-PtrSetupStep)) {
         $status = Get-PtrSetupStepStatus -Step $step -Context $script:Context
         $actions = @(New-PtrSetupStepPlan -Step $step -Context $script:Context)
-        $bytes = ($actions | Measure-Object -Property Size -Sum).Sum
+        # Skips are files already on the PTR. They belong in the list, so you can
+        # see they were considered, but not in the counts of what will change.
+        $changing = @($actions | Where-Object { $_.Kind -ne 'skip' })
+        $bytes = ($changing | Measure-Object -Property Size -Sum).Sum
 
         # First render pre-ticks every automated step that has work to do.
         if (-not $script:SelectedTouched -and $step.Mode -eq 'auto' -and $status.State -ne 'blocked') {
@@ -330,10 +379,12 @@ function Update-Steps {
             $check.ToolTip = 'Include this step when you press Apply'
             $check.Add_Click({
                     param($sender, $e)
-                    $stepId = $sender.Tag.Id
-                    if ($sender.IsChecked) { $null = $script:Selected.Add($stepId) } else { $null = $script:Selected.Remove($stepId) }
-                    $script:SelectedTouched = $true
-                    Update-Summary
+                    Invoke-Guarded {
+                        $stepId = $sender.Tag.Id
+                        if ($sender.IsChecked) { $null = $script:Selected.Add($stepId) } else { $null = $script:Selected.Remove($stepId) }
+                        $script:SelectedTouched = $true
+                        Update-Summary
+                    }
                 })
         }
         else {
@@ -341,10 +392,12 @@ function Update-Steps {
             $check.ToolTip = 'Mark this manual step as done'
             $check.Add_Click({
                     param($sender, $e)
-                    $stepId = $sender.Tag.Id
-                    if ($sender.IsChecked) { $null = $script:Context.Acknowledged.Add($stepId) }
-                    else { $null = $script:Context.Acknowledged.Remove($stepId) }
-                    Update-Steps
+                    Invoke-Guarded {
+                        $stepId = $sender.Tag.Id
+                        if ($sender.IsChecked) { $null = $script:Context.Acknowledged.Add($stepId) }
+                        else { $null = $script:Context.Acknowledged.Remove($stepId) }
+                        Update-Steps
+                    }
                 })
         }
         $null = $grid.Children.Add($check)
@@ -371,14 +424,19 @@ function Update-Steps {
         }
 
         if ($step.Mode -eq 'auto' -and $actions.Count) {
+            $unchanged = $actions.Count - $changing.Count
             $expander = New-Object System.Windows.Controls.Expander
-            $expander.Header = "Show the $($actions.Count) file(s) — $(Format-ByteSize ([long]$bytes))"
+            $expander.Header = "Show the $($changing.Count) file(s) — $(Format-ByteSize ([long]$bytes))" +
+                $(if ($unchanged) { " · $unchanged already on the PTR" } else { '' })
             $expander.Foreground = Get-Brush '#F0C674'
             $expander.FontSize = 12
             $expander.Margin = New-Object System.Windows.Thickness 0, 8, 0, 0
 
             $list = New-Object System.Windows.Controls.TextBox
             $list.IsReadOnly = $true
+            # Without AcceptsReturn a TextBox is single-line and the whole file
+            # list renders on one row.
+            $list.AcceptsReturn = $true
             $list.MaxHeight = 160
             $list.FontFamily = 'Consolas'
             $list.FontSize = 11
@@ -415,7 +473,7 @@ function Update-Summary {
     $bytes = [long]0
     foreach ($step in (Get-PtrSetupStep)) {
         if (-not $script:Selected.Contains($step.Id)) { continue }
-        $actions = @(New-PtrSetupStepPlan -Step $step -Context $script:Context)
+        $actions = @(New-PtrSetupStepPlan -Step $step -Context $script:Context | Where-Object { $_.Kind -ne 'skip' })
         $files += $actions.Count
         $bytes += ([long](($actions | Measure-Object -Property Size -Sum).Sum))
     }
@@ -426,6 +484,12 @@ function Update-Summary {
     $ui.SummaryText.Text = if (-not $ready) {
         'Pick a live client and a PTR client to begin.'
     }
+    elseif (-not $script:Selected.Count) {
+        'No steps ticked — tick the ones you want to run.'
+    }
+    elseif ($files -eq 0) {
+        "$($script:Selected.Count) step(s) selected · already up to date, nothing to copy."
+    }
     else {
         "$($script:Selected.Count) step(s) selected · $files file(s) · $(Format-ByteSize $bytes)"
     }
@@ -433,11 +497,14 @@ function Update-Summary {
 
 function Update-Backups {
     $ui.BackupCombo.Items.Clear()
-    if (-not $script:Context.Target) { return }
-    foreach ($backup in (Get-PtrSetupBackup -InstallPath $script:Context.Target.Path)) {
-        $null = $ui.BackupCombo.Items.Add($backup)
+    if ($script:Context.Target) {
+        foreach ($backup in (Get-PtrSetupBackup -InstallPath $script:Context.Target.Path)) {
+            $null = $ui.BackupCombo.Items.Add($backup)
+        }
+        if ($ui.BackupCombo.Items.Count) { $ui.BackupCombo.SelectedIndex = 0 }
     }
-    if ($ui.BackupCombo.Items.Count) { $ui.BackupCombo.SelectedIndex = 0 }
+    # Set last, and on every path — returning early here used to leave the button
+    # looking usable with no backups behind it.
     $ui.RestoreButton.IsEnabled = ($ui.BackupCombo.Items.Count -gt 0)
 }
 
@@ -538,41 +605,51 @@ function Invoke-Run {
 # Events
 # --------------------------------------------------------------------------
 
-$ui.RescanButton.Add_Click({ Invoke-Rescan })
+$ui.RescanButton.Add_Click({ Invoke-Guarded { Invoke-Rescan } })
 
 $ui.BrowseButton.Add_Click({
-        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dialog.Description = 'Pick your "World of Warcraft" folder (or a client folder inside it)'
-        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            if (-not $script:ExtraPaths.Contains($dialog.SelectedPath)) {
-                $script:ExtraPaths.Add($dialog.SelectedPath)
+        Invoke-Guarded {
+            $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dialog.Description = 'Pick your "World of Warcraft" folder (or a client folder inside it)'
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                if (-not $script:ExtraPaths.Contains($dialog.SelectedPath)) {
+                    $script:ExtraPaths.Add($dialog.SelectedPath)
+                }
+                Invoke-Rescan
             }
-            Invoke-Rescan
         }
     })
 
 $ui.SourceInstallCombo.Add_SelectionChanged({
         if ($script:Suppress) { return }
-        $script:Context = Set-PtrSetupInstall -Context $script:Context -Side 'Source' -Install $ui.SourceInstallCombo.SelectedItem
-        Update-All
+        Invoke-Guarded {
+            $script:Context = Set-PtrSetupInstall -Context $script:Context -Side 'Source' -Install $ui.SourceInstallCombo.SelectedItem
+            Update-All
+        }
     })
 
 $ui.TargetInstallCombo.Add_SelectionChanged({
         if ($script:Suppress) { return }
-        $script:Context = Set-PtrSetupInstall -Context $script:Context -Side 'Target' -Install $ui.TargetInstallCombo.SelectedItem
-        Update-All
+        Invoke-Guarded {
+            $script:Context = Set-PtrSetupInstall -Context $script:Context -Side 'Target' -Install $ui.TargetInstallCombo.SelectedItem
+            Update-All
+        }
     })
 
 $ui.SourceAccountCombo.Add_SelectionChanged({
         if ($script:Suppress) { return }
-        $script:Context = Set-PtrSetupAccount -Context $script:Context -Side 'Source' -Account ([string]$ui.SourceAccountCombo.SelectedItem)
-        Update-CharacterPanel; Update-Steps; Update-Summary
+        Invoke-Guarded {
+            $script:Context = Set-PtrSetupAccount -Context $script:Context -Side 'Source' -Account ([string]$ui.SourceAccountCombo.SelectedItem)
+            Update-CharacterPanel; Update-Steps; Update-Summary
+        }
     })
 
 $ui.TargetAccountCombo.Add_SelectionChanged({
         if ($script:Suppress) { return }
-        $script:Context = Set-PtrSetupAccount -Context $script:Context -Side 'Target' -Account ([string]$ui.TargetAccountCombo.SelectedItem)
-        Update-CharacterPanel; Update-Steps; Update-Summary
+        Invoke-Guarded {
+            $script:Context = Set-PtrSetupAccount -Context $script:Context -Side 'Target' -Account ([string]$ui.TargetAccountCombo.SelectedItem)
+            Update-CharacterPanel; Update-Steps; Update-Summary
+        }
     })
 
 $optionMap = @{
@@ -587,29 +664,34 @@ foreach ($controlName in $optionMap.Keys) {
     $ui[$controlName].Add_Click({
             param($sender, $e)
             if ($script:Suppress) { return }
-            $script:Context.Options[$sender.Tag] = [bool]$sender.IsChecked
-            Update-Steps
-            Update-Summary
+            Invoke-Guarded {
+                $script:Context.Options[$sender.Tag] = [bool]$sender.IsChecked
+                Update-Steps
+                Update-Summary
+            }
         })
 }
 
-$ui.RefreshBackupsButton.Add_Click({ Update-Backups })
+$ui.RefreshBackupsButton.Add_Click({ Invoke-Guarded { Update-Backups } })
 
 $ui.RestoreButton.Add_Click({
-        $backup = $ui.BackupCombo.SelectedItem
-        if (-not $backup) { return }
-        $answer = [System.Windows.MessageBox]::Show(
-            "Undo $($backup.Id)?`n`n$($backup.FileCount) replaced file(s) go back, and $($backup.AddedCount) file(s) this run added are removed.",
-            'WoW PTR UI Setup', 'OKCancel', 'Question')
-        if ($answer -ne 'OK') { return }
+        Invoke-Guarded {
+            $backup = $ui.BackupCombo.SelectedItem
+            if (-not $backup) { return }
+            $answer = [System.Windows.MessageBox]::Show(
+                "Undo $($backup.Id)?`n`n$($backup.FileCount) replaced file(s) go back, and $($backup.AddedCount) file(s) this run added are removed." +
+                "`n`nThis undoes one step. An Apply that ran several steps leaves one backup per step, so undoing the whole run means restoring each of them.",
+                'WoW PTR UI Setup', 'OKCancel', 'Question')
+            if ($answer -ne 'OK') { return }
 
-        $undo = Restore-PtrSetupBackup -InstallPath $script:Context.Target.Path -BackupId $backup.Id
-        Write-Result "[ok]   Undid $($backup.Id): put back $($undo.Restored) file(s), removed $($undo.Removed) added file(s)."
-        Update-All
+            $undo = Restore-PtrSetupBackup -InstallPath $script:Context.Target.Path -BackupId $backup.Id
+            Write-Result "[ok]   Undid $($backup.Id): put back $($undo.Restored) file(s), removed $($undo.Removed) added file(s)."
+            Update-All
+        }
     })
 
-$ui.PreviewButton.Add_Click({ Invoke-Run -PreviewOnly })
-$ui.ApplyButton.Add_Click({ Invoke-Run })
+$ui.PreviewButton.Add_Click({ Invoke-Guarded { Invoke-Run -PreviewOnly } })
+$ui.ApplyButton.Add_Click({ Invoke-Guarded { Invoke-Run } })
 
 # --------------------------------------------------------------------------
 # Go

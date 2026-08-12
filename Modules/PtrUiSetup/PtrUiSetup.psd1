@@ -35,6 +35,7 @@
         'Get-PathRelative'
         'Write-TextFileNoBom'
         'Get-RelativeFile'
+        'Test-FileUnchanged'
         'Format-ByteSize'
         'New-PtrSetupContext'
         'Test-ContextReady'

@@ -159,9 +159,10 @@ Write-Host 'file on the PTR side and see whether it really came across.'
 Write-Host ''
 Write-Host 'Things worth trying:' -ForegroundColor Cyan
 Write-Host '  · Preview changes  — nothing should be written'
-Write-Host '  · Apply            — 4 addons copied, OldPtrAddon removed, Sunderfury settings copied'
+Write-Host "  · Apply            — $($addons.Count) addons copied, OldPtrAddon removed, Sunderfury settings copied"
 Write-Host "  · Check WTF\Config.wtf on the PTR side — realmList must still say logon-ptr"
-Write-Host '  · Restore a backup — everything goes back'
+Write-Host '  · Restore a backup — that step goes back. An Apply leaves one backup'
+Write-Host '                       per step, so undoing the lot means restoring each'
 Write-Host '  · Apply again      — steps should report "already up to date"'
 Write-Host ''
 Write-Host 'Point the tool at it:' -ForegroundColor Yellow

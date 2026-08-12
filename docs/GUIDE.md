@@ -121,6 +121,37 @@ at `WTF\Config.wtf`. The tool uses the real location.
 copies everything it removes into a backup first, so Restore puts it back — including
 addons that only ever existed on the PTR.
 
+## A second implementation of the same guide
+
+[WoW-PTR-Config-Copier](https://github.com/Azevedoc/WoW-PTR-Config-Copier)
+(`CopyWoWConfigs.ps1`) is an interactive terminal script automating the same Reddit
+thread. It is a useful second opinion on what has to move, and
+`tests/Coverage.Tests.ps1` asserts that every copy operation in it is a file some step
+here plans to write. Its nine operations map onto four of our steps:
+
+| Its operation | Here |
+|---|---|
+| `Interface\AddOns` (robocopy, `/MIR` on "overwrite") | `copy_addons`, with `ReplaceAddOns` as `/MIR` |
+| Account `SavedVariables` | `copy_account_saved_variables` |
+| Account `bindings-cache.wtf`, `macros-cache.wtf`/`.txt` | `copy_account_saved_variables` |
+| Character `SavedVariables` | `copy_character_data` |
+| Character `config-cache.wtf`, `bindings-cache.wtf`, macros | `copy_character_data` |
+| `WTF\Config.wtf` (copied wholesale) | `copy_config_wtf`, **merged** — deviation 2 |
+
+Two differences are worth recording:
+
+- It copies `Config.wtf` whole, which is the thing deviation 2 exists to avoid: that
+  carries `realmList` and `portal` over from the live client. Independent arrival at the
+  same file list, with the same hazard in it, is decent evidence the deviation is right.
+- It handles one character per run and does not touch `AddOns.txt`, `layout-local.txt`,
+  or `checkAddonVersion`. Without the first two the addons arrive but come up disabled
+  and in default positions; without the third the PTR treats every copied addon as out
+  of date. Those are covered here and are not in the guide either — see the step table.
+
+Things it has that this tool does not, both worth considering: it reads WoW's install
+path out of the registry rather than scanning known folders, and it checks for an
+elevated session, which matters when WoW lives under `Program Files`.
+
 ## Things the guide gets right that are easy to miss
 
 - **The realm folder is named differently on the PTR** ("Classic PTR Realm 1"), so the

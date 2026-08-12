@@ -53,6 +53,7 @@ Export-ModuleMember -Function @(
     'Get-PathRelative'
     'Write-TextFileNoBom'
     'Get-RelativeFile'
+    'Test-FileUnchanged'
     'Format-ByteSize'
     # Steps
     'New-PtrSetupContext'

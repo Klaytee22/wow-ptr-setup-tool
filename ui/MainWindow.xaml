@@ -4,7 +4,8 @@
     Title="WoW PTR UI Setup"
     Height="820" Width="1000" MinHeight="600" MinWidth="820"
     WindowStartupLocation="CenterScreen"
-    Background="#12141A">
+    Background="#12141A"
+    TextElement.Foreground="#E7E9EF">
 
     <Window.Resources>
         <SolidColorBrush x:Key="Bg" Color="#12141A" />
@@ -20,11 +21,24 @@
         <SolidColorBrush x:Key="Red" Color="#F07B7B" />
         <SolidColorBrush x:Key="Blue" Color="#7AA7F0" />
 
+        <!-- No Foreground here on purpose. An implicit TextBlock style also lands
+             on the TextBlocks that ComboBoxItems and Buttons build for their own
+             content, and a Setter beats an inherited value — light text would be
+             painted onto the dropdown's light background and over the gold Apply
+             button. The default text colour is set as TextElement.Foreground on
+             the Window instead, which inherits and so loses to anything nearer. -->
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource Text}" />
             <Setter Property="FontFamily" Value="Segoe UI" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <!-- The dropdown popup keeps the system's light background, so its items
+             need dark text rather than the window's. -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="#12141A" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
         </Style>
 
         <Style x:Key="Hint" TargetType="TextBlock">
@@ -217,9 +231,13 @@
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
                         <TextBlock Style="{StaticResource SectionTitle}" Text="Results" />
+                        <!-- AcceptsReturn is what puts the box into multi-line mode. Without
+                             it every line written here lands on one line, and the vertical
+                             scrollbar never appears. It is read-only, so nobody types a
+                             return into it either way. -->
                         <TextBox x:Name="ResultsBox" Height="150" Margin="0,8,0,0"
                                  Background="#171A22" Foreground="{StaticResource Text}" BorderBrush="{StaticResource Line}"
-                                 FontFamily="Consolas" FontSize="12" IsReadOnly="True"
+                                 FontFamily="Consolas" FontSize="12" IsReadOnly="True" AcceptsReturn="True"
                                  VerticalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
                     </StackPanel>
                 </Border>

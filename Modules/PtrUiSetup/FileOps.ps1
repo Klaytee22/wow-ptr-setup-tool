@@ -127,9 +127,42 @@ function Get-RelativeFile {
         $rel = Get-PathRelative -Base $rootFull -Path $file.FullName
         $parts = $rel -split '[\\/]'
         if ($parts | Where-Object { $Exclude -contains $_ }) { continue }
-        [pscustomobject]@{ Relative = $rel; FullName = $file.FullName; Length = $file.Length }
+        [pscustomobject]@{
+            Relative         = $rel
+            FullName         = $file.FullName
+            Length           = $file.Length
+            LastWriteTimeUtc = $file.LastWriteTimeUtc
+        }
     }
     return @($relative | Sort-Object Relative)
+}
+
+function Test-FileUnchanged {
+    <#
+    .SYNOPSIS
+        True when a destination file already matches its source.
+
+    .DESCRIPTION
+        Size plus last-write time, which is what Copy-Item leaves behind: it
+        preserves the source timestamp tick for tick, so a file this tool has
+        already copied compares equal on the next run. Hashing instead would be
+        exact, but the plan is rebuilt on every refresh of the window and a real
+        AddOns folder runs to hundreds of megabytes — the window would stall on
+        every click.
+
+        The comparison is exact rather than tolerant. A tolerance wide enough to
+        cover a coarse filesystem is also wide enough to call two genuinely
+        different same-size files identical, and skipping a file the user edited
+        is the worse failure of the two.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [psobject] $Source,
+        [Parameter(Mandatory)] [psobject] $Destination
+    )
+
+    if ($Source.Length -ne $Destination.Length) { return $false }
+    return ($Source.LastWriteTimeUtc -eq $Destination.LastWriteTimeUtc)
 }
 
 function New-TreeCopyPlan {
@@ -151,11 +184,26 @@ function New-TreeCopyPlan {
         [string[]] $Exclude = $script:DefaultExcludes
     )
 
+    $sourceFiles = @(Get-RelativeFile -Root $Source -Exclude $Exclude)
+    $destinationFiles = @(Get-RelativeFile -Root $Destination -Exclude $Exclude)
+
+    # Keyed by relative path. A PowerShell hashtable is case-insensitive, which
+    # is what the destination filesystem is too.
+    $existing = @{}
+    foreach ($file in $destinationFiles) { $existing[$file.Relative] = $file }
+
     $actions = [System.Collections.Generic.List[psobject]]::new()
-    foreach ($file in (Get-RelativeFile -Root $Source -Exclude $Exclude)) {
+    foreach ($file in $sourceFiles) {
         $target = Join-Path $Destination $file.Relative
-        if (-not (Test-Path -LiteralPath $target)) {
+        $match = $existing[$file.Relative]
+        if (-not $match) {
             $actions.Add((New-FileAction -Kind 'create' -Source $file.FullName -Destination $target -Size $file.Length))
+        }
+        elseif (Test-FileUnchanged -Source $file -Destination $match) {
+            # Already copied. Re-copying would be a no-op on disk but would fill
+            # the preview with files that are not changing and back up every one
+            # of them, so a second run could never report itself finished.
+            $actions.Add((New-FileAction -Kind 'skip' -Source $file.FullName -Destination $target -Size $file.Length -Note 'already copied'))
         }
         elseif ($Overwrite) {
             $actions.Add((New-FileAction -Kind 'overwrite' -Source $file.FullName -Destination $target -Size $file.Length))
@@ -167,8 +215,8 @@ function New-TreeCopyPlan {
 
     if ($Prune) {
         $wanted = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($file in (Get-RelativeFile -Root $Source -Exclude $Exclude)) { $null = $wanted.Add($file.Relative) }
-        foreach ($file in (Get-RelativeFile -Root $Destination -Exclude $Exclude)) {
+        foreach ($file in $sourceFiles) { $null = $wanted.Add($file.Relative) }
+        foreach ($file in $destinationFiles) {
             if ($wanted.Contains($file.Relative)) { continue }
             $actions.Add((New-FileAction -Kind 'delete' -Destination $file.FullName -Size $file.Length -Note 'not in the live client'))
         }
@@ -190,10 +238,14 @@ function New-SingleFileCopyPlan {
     )
 
     if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) { return @() }
-    $size = (Get-Item -LiteralPath $Source).Length
+    $sourceItem = Get-Item -LiteralPath $Source
+    $size = $sourceItem.Length
 
     if (-not (Test-Path -LiteralPath $Destination)) {
         return @(New-FileAction -Kind 'create' -Source $Source -Destination $Destination -Size $size)
+    }
+    if (Test-FileUnchanged -Source $sourceItem -Destination (Get-Item -LiteralPath $Destination)) {
+        return @(New-FileAction -Kind 'skip' -Source $Source -Destination $Destination -Size $size -Note 'already copied')
     }
     if ($Overwrite) {
         return @(New-FileAction -Kind 'overwrite' -Source $Source -Destination $Destination -Size $size)

@@ -62,6 +62,22 @@ which is how "delete any addons there, then paste yours" is expressed in file te
 Everything else — preview rendering, byte totals, backup selection — treats them all
 identically.
 
+A `skip` is a file the plan considered and decided not to touch. There are two reasons
+for one: the user turned overwriting off, or the file is already there and identical
+(`Test-FileUnchanged`). The second is what makes the tool idempotent — without it a
+second run re-copies every file, backs up every one of them, and no step can ever say it
+is finished, because `Get-PtrSetupStepStatus` reads "done" as *nothing left that is not a
+skip*. The window counts skips separately for the same reason: they belong in the file
+list, not in "12 file(s) will change".
+
+`Test-FileUnchanged` compares size and last-write time rather than hashing. `Copy-Item`
+preserves the source timestamp tick for tick, so a file this tool copied compares equal
+on the next run; hashing would be exact but the plan is rebuilt on every refresh of the
+window, and a real `AddOns` folder runs to hundreds of megabytes. The comparison is exact
+rather than tolerant: a tolerance wide enough for a coarse filesystem is also wide enough
+to call two different same-size files identical, and skipping a file the user edited is
+the worse of the two failures.
+
 ## Safety model
 
 `Invoke-FileActionPlan` is the only thing that writes, and it:

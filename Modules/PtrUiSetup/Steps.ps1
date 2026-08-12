@@ -478,6 +478,14 @@ function Invoke-PtrSetupStep {
             Message = 'Nothing to do.'; Actions = @(); BackupPath = $null
         }
     }
+    # A plan of nothing but skips means every file is already where it belongs.
+    # Saying so beats "Copied 0 file(s)", which reads like something went wrong.
+    if (-not ($actions | Where-Object { $_.Kind -ne 'skip' })) {
+        return [pscustomobject]@{
+            StepId = $Step.Id; Ok = $true; PreviewOnly = [bool]$PreviewOnly
+            Message = 'Already up to date.'; Actions = $actions; BackupPath = $null
+        }
+    }
 
     try {
         $result = Invoke-FileActionPlan -Action $actions -InstallPath $Context.Target.Path -Label $Step.Id `

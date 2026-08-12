@@ -378,3 +378,36 @@ Describe 'Awkward situations' {
         Assert-True ((Get-Content -LiteralPath (Join-Path $accountDir 'SavedVariables/Plater.lua') -Raw) -match 'LIVE')
     }
 }
+
+Describe 'Running it twice' {
+
+    It 'reports every step done on a second pass, and writes nothing' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        $after = Get-TreeSnapshot -Root $mock.Context.Target.Path
+        foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+            $status = Get-PtrSetupStepStatus -Step $step -Context $mock.Context
+            Assert-Equal 'done' $status.State "$($step.Id) should be done after a full run, not $($status.State)."
+        }
+
+        $second = @(Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId))
+        foreach ($result in $second) {
+            Assert-True $result.Ok "$($result.StepId) failed on the second run: $($result.Message)"
+            Assert-True ($result.Message -match 'Nothing to do|Already up to date') `
+                "$($result.StepId) said '$($result.Message)' instead of reporting itself finished."
+        }
+        Assert-Equal $after (Get-TreeSnapshot -Root $mock.Context.Target.Path) `
+            'A second run must not change a single file.'
+    }
+
+    It 'does not take a fresh backup when there is nothing to back up' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+        $first = @(Get-PtrSetupBackup -InstallPath $mock.Context.Target.Path).Count
+
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+        Assert-Equal $first @(Get-PtrSetupBackup -InstallPath $mock.Context.Target.Path).Count `
+            'A no-op run should not leave another backup folder behind.'
+    }
+}

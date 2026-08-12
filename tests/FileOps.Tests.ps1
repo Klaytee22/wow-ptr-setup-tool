@@ -282,3 +282,45 @@ Describe 'Pruning' {
         Assert-True (Test-Path -LiteralPath (Join-Path $dest 'Stale/Stale.lua'))
     }
 }
+
+Describe 'Test-FileUnchanged' {
+
+    It 'calls a copied file unchanged, and an edited one changed' {
+        $source = Join-Path $script:TestDrive 'a.lua'
+        $copy = Join-Path $script:TestDrive 'b.lua'
+        $null = New-TestFile -Path $source -Content 'profile data'
+        Copy-Item -LiteralPath $source -Destination $copy
+
+        # Copy-Item preserves the source timestamp, which is what makes a second
+        # run able to tell "already copied" from "needs copying".
+        Assert-True (Test-FileUnchanged -Source (Get-Item $source) -Destination (Get-Item $copy))
+
+        Start-Sleep -Milliseconds 20
+        $null = New-TestFile -Path $copy -Content 'profile data'   # same size, later stamp
+        Assert-True (-not (Test-FileUnchanged -Source (Get-Item $source) -Destination (Get-Item $copy))) `
+            'A same-size file written later is a different file.'
+    }
+
+    It 'plans a skip for a file already copied, whatever the overwrite setting' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'same'
+        $null = New-Item -ItemType Directory -Path $dest -Force
+        Copy-Item -LiteralPath (Join-Path $source 'a.lua') -Destination (Join-Path $dest 'a.lua')
+
+        $planned = @(New-TreeCopyPlan -Source $source -Destination $dest)[0]
+        Assert-Equal 'skip' $planned.Kind
+        Assert-Equal 'already copied' $planned.Note
+
+        Assert-Equal 'skip' @(New-SingleFileCopyPlan -Source (Join-Path $source 'a.lua') -Destination (Join-Path $dest 'a.lua'))[0].Kind
+    }
+
+    It 'still plans an overwrite when the live file has actually changed' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'new content here'
+        $null = New-TestFile -Path (Join-Path $dest 'a.lua') -Content 'old'
+
+        Assert-Equal 'overwrite' @(New-TreeCopyPlan -Source $source -Destination $dest)[0].Kind
+    }
+}

@@ -90,7 +90,7 @@ Modules/PtrUiSetup/
   Steps.ps1                   the guide, expressed as data
   Session.ps1                 first-guess selection and keeping it consistent
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        111 tests, no game install and no Pester required
+tests/                        123 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -122,15 +122,19 @@ character on "Classic PTR Realm 1", one stale PTR-only addon), then opens the wi
 pointed at it. Every file is stamped `LIVE` or `PTR`, so after applying you can open
 anything on the PTR side and see whether it really came across.
 
-Worth trying there: Preview (nothing should change), Apply (4 addons copied, the stale
-one removed), check `WTF\Config.wtf` still says `logon-ptr`, Restore (everything goes
-back), Apply again (every step reports "already up to date"). Delete the folder when
-you are done — nothing else on your machine is touched.
+Worth trying there: Preview (nothing should change), Apply (5 addons copied, the stale
+one removed), check `WTF\Config.wtf` still says `logon-ptr`, Restore, Apply again (every
+step reports "already up to date"). Delete the folder when you are done — nothing else
+on your machine is touched.
+
+A backup is per step, not per Apply: an Apply that ran four steps leaves four backup
+entries, and Restore undoes the one you pick. Rolling a whole run back means restoring
+each of its entries.
 
 ## Development
 
 ```powershell
-./tests/Invoke-Tests.ps1                       # all 111
+./tests/Invoke-Tests.ps1                       # all 123
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
 
@@ -139,7 +143,10 @@ time against small fixtures. **Integration tests** (`Integration.Tests.ps1`) bui
 real mock install from `tools/New-MockWowFolder.ps1` and walk the guide end to end,
 asserting on what lands on disk — one test per instruction in the guide, plus undo,
 idempotency, options, and awkward cases (PTR never launched, renamed account folder,
-no character copied yet).
+no character copied yet). **Coverage tests** (`Coverage.Tests.ps1`) check this tool
+against [WoW-PTR-Config-Copier](https://github.com/Azevedoc/WoW-PTR-Config-Copier),
+which automates the same guide: every file its script copies has to be a file some step
+here plans to write.
 
 Tests build fake `World of Warcraft` trees in temp folders, so the suite runs on
 machines that have never seen the game — including CI, which runs it on PowerShell 7
@@ -157,14 +164,20 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 111 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 123 passing tests, including an end-to-end pass over a realistic mock install.
 
-The window itself **has not been opened on a real Windows machine**: WPF cannot run
-where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF (it
-cross-checks every control the script uses against the XAML, and parses both files),
-but rendering, layout and click behaviour need a human on Windows. Expect first-run
-rough edges in the window; the file operations underneath are the well-tested part —
-start with the mock install above.
+The window itself **has still not been opened on a real Windows machine**: WPF cannot run
+where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it
+parses both files, cross-checks every control the script uses against the XAML, and
+asserts the properties whose absence only shows up on screen (multi-line text boxes,
+no bare strings in a list that displays a property, every click handler wrapped so a
+failure cannot close the window). Rendering, layout and click behaviour still need a
+human on Windows. Expect first-run rough edges in the window; the file operations
+underneath are the well-tested part — start with the mock install above.
+
+Known and unverified on Windows: the dark theme leaves the ComboBox dropdown popups on
+the system's light background, which is why their items are explicitly dark rather than
+inheriting the window's light text. Worth a look on a real screen.
 
 See [`docs/GUIDE.md`](docs/GUIDE.md) for the source guide and the deliberate
 deviations from it, [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits
