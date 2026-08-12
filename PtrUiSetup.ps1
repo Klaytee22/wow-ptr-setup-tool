@@ -10,8 +10,10 @@
     Windows only, because WPF is. The module itself is cross-platform.
 
 .PARAMETER Path
-    Extra folders to scan on top of the standard install locations. Handy when
-    WoW lives somewhere unusual, or for pointing the window at a test tree.
+    Folders to look in, instead of the one the window would have started with.
+    Not needed in normal use — the window has a folder box, a Browse button and
+    a Detect button, and remembers what you pick. This is for scripting and for
+    pointing the window at a test tree.
 
 .PARAMETER ListSteps
     Print the step list and exit, without opening a window.
@@ -61,6 +63,9 @@ foreach ($node in $xaml.SelectNodes('//*[@*[local-name()="Name"]]')) {
 
 $script:Context = $null
 $script:Installs = @()
+# The folder box is the single source of truth for where to look. -Path adds
+# extra folders on top, for scripting and for the mock install.
+$script:WowFolder = ''
 $script:ExtraPaths = [System.Collections.Generic.List[string]]::new()
 foreach ($extra in $Path) { if ($extra) { $script:ExtraPaths.Add($extra) } }
 $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
@@ -184,6 +189,62 @@ function Invoke-Guarded {
 }
 
 # --------------------------------------------------------------------------
+# The game folder
+# --------------------------------------------------------------------------
+
+function Get-StartingFolder {
+    <#
+    .SYNOPSIS
+        What the folder box opens with: the last folder used, else whatever is
+        installed, else the conventional location for someone to correct.
+    #>
+    $saved = (Get-PtrSetupSetting).WowFolder
+    if ($saved -and (Test-Path -LiteralPath $saved -PathType Container)) { return $saved }
+
+    $detected = Find-WowFolder
+    if ($detected) { return $detected }
+
+    return (Get-WowDefaultRoot)
+}
+
+function Update-FolderStatus {
+    <#
+    .SYNOPSIS
+        One line under the folder box saying what is in the folder.
+    #>
+    $folder = $script:WowFolder
+    if (-not $folder) {
+        $ui.FolderStatus.Text = 'Pick the folder World of Warcraft is installed in.'
+        return
+    }
+    if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
+        $ui.FolderStatus.Text = 'That folder does not exist — check the path, or press Detect.'
+        return
+    }
+    if (-not $script:Installs) {
+        $ui.FolderStatus.Text = 'No game clients in there. Pick the folder holding _retail_ or _classic_.'
+        return
+    }
+
+    $names = @($script:Installs | ForEach-Object { $_.Label }) -join ', '
+    $ui.FolderStatus.Text = "$(@($script:Installs).Count) client(s) found: $names"
+}
+
+function Set-WowFolder {
+    <#
+    .SYNOPSIS
+        Point the tool at a folder, rescan, and remember it if it worked out.
+    #>
+    param([string] $Folder)
+
+    $script:WowFolder = $Folder.Trim('"', ' ')
+    if ($ui.FolderBox.Text -ne $script:WowFolder) { $ui.FolderBox.Text = $script:WowFolder }
+    Invoke-Rescan
+    # Only worth remembering a folder that turned out to have the game in it.
+    if ($script:Installs) { $null = Save-PtrSetupSetting -WowFolder $script:WowFolder }
+}
+
+# --------------------------------------------------------------------------
 # Rendering
 # --------------------------------------------------------------------------
 
@@ -210,12 +271,10 @@ function Update-InstallCombos {
         $script:Suppress = $false
     }
 
+    # "Nothing found at all" is the folder box's story to tell, just above this.
     $warnings = [System.Collections.Generic.List[string]]::new()
-    if (-not $script:Installs) {
-        $warnings.Add('No World of Warcraft folders found — use Browse to point at yours.')
-    }
-    elseif (-not ($script:Installs | Where-Object { $_.IsPtr })) {
-        $warnings.Add('No PTR client found. Install it from the Battle.net launcher, then press Rescan.')
+    if ($script:Installs -and -not ($script:Installs | Where-Object { $_.IsPtr })) {
+        $warnings.Add('No PTR client in that folder. Install it from the Battle.net launcher, then press Rescan.')
     }
     if ($script:Context.Target -and -not $script:Context.Target.HasBeenLaunched) {
         $warnings.Add('The PTR client has no WTF folder yet — launch it once, quit, then press Rescan.')
@@ -523,6 +582,7 @@ function Update-Options {
 }
 
 function Update-All {
+    Update-FolderStatus
     Update-InstallCombos
     Update-AccountCombos
     Update-CharacterPanel
@@ -532,10 +592,15 @@ function Update-All {
 }
 
 function Invoke-Rescan {
-    $ui.SummaryText.Text = 'Scanning for World of Warcraft folders…'
+    $ui.SummaryText.Text = 'Reading folders…'
     Update-UiNow
 
-    $script:Installs = @(Get-WowInstall -Path $script:ExtraPaths)
+    # The box is authoritative: look where the user said, not everywhere. -Path
+    # adds anything passed on the command line on top of it.
+    $paths = [System.Collections.Generic.List[string]]::new()
+    if ($script:WowFolder) { $paths.Add($script:WowFolder) }
+    foreach ($extra in $script:ExtraPaths) { $paths.Add($extra) }
+    $script:Installs = @(Get-WowInstall -Path $paths -SkipDefaultLocations)
     if ($null -eq $script:Context) {
         $script:Context = Initialize-PtrSetupContext -Install $script:Installs
         Update-Options
@@ -611,12 +676,43 @@ $ui.BrowseButton.Add_Click({
         Invoke-Guarded {
             $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
             $dialog.Description = 'Pick your "World of Warcraft" folder (or a client folder inside it)'
-            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                if (-not $script:ExtraPaths.Contains($dialog.SelectedPath)) {
-                    $script:ExtraPaths.Add($dialog.SelectedPath)
-                }
-                Invoke-Rescan
+            # Open where they already are rather than at the top of the tree.
+            if ($script:WowFolder -and (Test-Path -LiteralPath $script:WowFolder -PathType Container)) {
+                $dialog.SelectedPath = $script:WowFolder
             }
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                Set-WowFolder $dialog.SelectedPath
+            }
+        }
+    })
+
+$ui.DetectButton.Add_Click({
+        Invoke-Guarded {
+            $ui.FolderStatus.Text = 'Looking…'
+            Update-UiNow
+            $found = Find-WowFolder
+            if ($found) {
+                Set-WowFolder $found
+            }
+            else {
+                $ui.FolderStatus.Text = 'Could not find an install — use Browse to point at the folder.'
+            }
+        }
+    })
+
+# Enter commits the typed path. Leaving the box commits it too, so a click
+# straight onto Preview does not quietly use the old folder.
+$ui.FolderBox.Add_KeyDown({
+        param($sender, $e)
+        if ($e.Key -ne [System.Windows.Input.Key]::Return) { return }
+        $e.Handled = $true
+        Invoke-Guarded { Set-WowFolder $sender.Text }
+    })
+
+$ui.FolderBox.Add_LostFocus({
+        param($sender, $e)
+        Invoke-Guarded {
+            if ($sender.Text.Trim('"', ' ') -ne $script:WowFolder) { Set-WowFolder $sender.Text }
         }
     })
 
@@ -696,6 +792,10 @@ $ui.ApplyButton.Add_Click({ Invoke-Guarded { Invoke-Run } })
 # --------------------------------------------------------------------------
 # Go
 # --------------------------------------------------------------------------
+
+# -Path wins when given; otherwise pick up where the user left off, or detect.
+$script:WowFolder = if ($script:ExtraPaths.Count) { $script:ExtraPaths[0] } else { Get-StartingFolder }
+$ui.FolderBox.Text = $script:WowFolder
 
 Invoke-Rescan
 Write-Result 'Quit World of Warcraft before applying — it rewrites WTF when it exits.'

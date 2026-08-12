@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'Steps.ps1', 'Session.ps1')) {
+foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
     . (Join-Path $PSScriptRoot $part)
 }
 
@@ -25,6 +25,10 @@ Export-ModuleMember -Function @(
     'Get-WowFlavor'
     'Get-WowInstall'
     'Get-WowRootCandidate'
+    'Find-WowFolder'
+    'Get-WowDefaultRoot'
+    'Get-FixedDriveRoot'
+    'Get-WowRegistryPath'
     'Test-WindowsHost'
     'Test-MacHost'
     'Select-WowInstallPair'
@@ -66,6 +70,10 @@ Export-ModuleMember -Function @(
     'New-PtrSetupStepPlan'
     'Invoke-PtrSetupStep'
     'Invoke-PtrSetup'
+    # Settings
+    'Get-PtrSetupSettingPath'
+    'Get-PtrSetupSetting'
+    'Save-PtrSetupSetting'
     # Session
     'Initialize-PtrSetupContext'
     'Set-PtrSetupInstall'

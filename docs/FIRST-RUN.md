@@ -34,8 +34,21 @@ the PTR side and see whether it genuinely came across.
 These numbers are exact — they have been computed against this same mock install, so
 anything different is a finding worth reporting.
 
-**1 · Clients** — `Classic — …\_classic_` on the left, `Classic PTR — …\_classic_ptr_`
-on the right. No amber warning.
+**1 · Game folder** — the box holds the path to the mock's `World of Warcraft` folder,
+with **Browse…** and **Detect** beside it, and underneath:
+`2 client(s) found: Classic, Classic PTR`. Below that, `Classic — …\_classic_` on the
+left and `Classic PTR — …\_classic_ptr_` on the right. No amber warning.
+
+Worth poking while you are here, since none of it has run:
+
+- Type nonsense into the box and press **Enter** → *That folder does not exist — check
+  the path, or press Detect.* The client dropdowns should empty out.
+- Put the real path back, or press **Browse…** — the picker should open *at* the folder
+  you were on, not at the top of the tree.
+- **Detect** searches your machine for a real install. On this mock it will most likely
+  find your actual WoW folder, or say it could not find one. Either is fine; just put
+  the mock path back afterwards. (Detect is instant — if it visibly hangs, that is a
+  finding.)
 
 **2 · Account & characters** — `112233445#1` on both sides, and one mapping row:
 
@@ -124,8 +137,11 @@ disappear: added files are removed as well as replaced ones being put back.
 
 ## 7. When you are done
 
-Delete the `PtrUiSetup-Mock` folder from your desktop. Nothing else on your machine
-was touched.
+Delete the `PtrUiSetup-Mock` folder from your desktop.
+
+One other thing the tool leaves behind: `%LOCALAPPDATA%\PtrUiSetup\settings.json`,
+which is how it remembers your folder between launches. Delete it if you want to see
+first-launch detection again. Nothing else on your machine was touched.
 
 Then, on your real install, the honest order is: **Preview first, read the file list,
 and only then Apply.** Quit WoW before applying — it rewrites `WTF` when it exits and
@@ -146,5 +162,10 @@ Everything visual is unverified, so anything that looks wrong probably is. Speci
 - [ ] Does the progress bar move during Apply, or does the window freeze?
 - [ ] Does anything throw? Errors now land in the Results box as `[fail] …` instead of
       closing the window, so the message should be readable rather than lost.
+- [ ] Does the **folder box** behave — Enter commits, clicking away commits, Browse
+      opens where you already are, and the second launch opens on the folder you left
+      it on?
+- [ ] On your *real* install, does **Detect** find it? That path comes from the
+      registry first, so it should be instant and exact.
 
 A screenshot is worth more than a description for any of these.

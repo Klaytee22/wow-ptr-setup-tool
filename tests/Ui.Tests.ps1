@@ -64,7 +64,8 @@ Describe 'The window and its XAML' {
     It 'names every control it needs for the four sections' {
         $defined = Get-XamlName -Path $xamlPath
         foreach ($required in @(
-                'SourceInstallCombo', 'TargetInstallCombo', 'RescanButton', 'BrowseButton', 'InstallWarning',
+                'FolderBox', 'BrowseButton', 'DetectButton', 'FolderStatus',
+                'SourceInstallCombo', 'TargetInstallCombo', 'RescanButton', 'InstallWarning',
                 'SourceAccountCombo', 'TargetAccountCombo', 'CharacterPanel',
                 'StepsPanel',
                 'OverwriteOption', 'MacrosOption', 'ChatOption', 'OutOfDateOption',
@@ -122,7 +123,7 @@ Describe 'The window and its XAML' {
         $subscriptions = @($ast.FindAll({
                     param($node)
                     $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
-                    $node.Member.Value -in @('Add_Click', 'Add_SelectionChanged')
+                    $node.Member.Value -in @('Add_Click', 'Add_SelectionChanged', 'Add_KeyDown', 'Add_LostFocus')
                 }, $true))
 
         Assert-True ($subscriptions.Count -ge 12) "Expected to find the event handlers, found $($subscriptions.Count)."
@@ -134,6 +135,16 @@ Describe 'The window and its XAML' {
         }
     }
 
+    It 'can reach every folder it needs without a command-line flag' {
+        # -Path stays for scripting, but nothing in the window may depend on it:
+        # the folder box, Browse and Detect have to cover it between them.
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -match 'Get-StartingFolder') 'The box needs a starting value on first launch.'
+        Assert-True ($text -match 'Find-WowFolder') 'Detect needs to be wired to detection.'
+        Assert-True ($text -match 'FolderBrowserDialog') 'Browse needs a folder picker.'
+        Assert-True ($text -match 'Save-PtrSetupSetting') 'A corrected folder should be remembered.'
+    }
+
     It 'keeps the step ids in the module and the launcher in step' {
         # -ListSteps is the console path through the same registry the window renders.
         $ids = @((Get-PtrSetupStep).Id)
@@ -141,5 +152,88 @@ Describe 'The window and its XAML' {
         Assert-True ($ids -contains 'quit_the_game')
         Assert-Equal 9 $ids.Count
         Assert-Equal @($ids | Sort-Object -Unique).Count $ids.Count 'Step ids must be unique.'
+    }
+}
+
+Describe 'The folder box, without WPF' {
+    <#
+        The window cannot be opened off Windows, but most of what the folder box
+        does is ordinary logic sitting in named functions. Lifting those out of
+        the script by AST and running them against a stub $ui exercises the part
+        that decides what the user sees, which is the part worth checking.
+    #>
+
+    function Get-WindowFunction {
+        <#
+            Returns the named functions as one scriptblock. Dot-source the result
+            in the test itself — dot-sourcing in here would define them in this
+            function's scope, which ends when it returns.
+        #>
+        param([string[]] $Name)
+
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $text = foreach ($wanted in $Name) {
+            $found = @($ast.FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $wanted
+                    }, $true))
+            Assert-Equal 1 $found.Count "Expected one $wanted in the window script."
+            $found[0].Extent.Text
+        }
+        return [scriptblock]::Create($text -join [Environment]::NewLine)
+    }
+
+    It 'says what is in the folder, and only remembers folders that worked' {
+        . (Get-WindowFunction @('Get-StartingFolder', 'Update-FolderStatus', 'Set-WowFolder'))
+
+        $ui = @{ FolderBox = [pscustomobject]@{ Text = '' }; FolderStatus = [pscustomobject]@{ Text = '' } }
+        $script:Installs = @()
+        $script:WowFolder = ''
+        function Invoke-Rescan {
+            $script:Installs = @(Get-WowInstall -Path $script:WowFolder -SkipDefaultLocations)
+            Update-FolderStatus
+        }
+
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $env:PTRSETUP_SETTINGS = Join-Path $script:TestDrive 'settings.json'
+        try {
+            Set-WowFolder $root
+            Assert-True ($ui.FolderStatus.Text -match 'client\(s\) found') "Got: $($ui.FolderStatus.Text)"
+            Assert-Equal $root (Get-PtrSetupSetting).WowFolder
+
+            # A typo must not throw away the folder that was working.
+            Set-WowFolder (Join-Path $script:TestDrive 'nope')
+            Assert-True ($ui.FolderStatus.Text -match 'does not exist') "Got: $($ui.FolderStatus.Text)"
+            Assert-Equal $root (Get-PtrSetupSetting).WowFolder
+
+            # A real folder with no game in it is a different problem, and says so.
+            Set-WowFolder $script:TestDrive
+            Assert-True ($ui.FolderStatus.Text -match 'No game clients') "Got: $($ui.FolderStatus.Text)"
+
+            # Explorer's "Copy as path" wraps the path in quotes.
+            Set-WowFolder ('"' + $root + '"')
+            Assert-Equal $root $ui.FolderBox.Text
+            Assert-True ($ui.FolderStatus.Text -match 'client\(s\) found')
+
+            # Next launch opens where it was left.
+            Assert-Equal $root (Get-StartingFolder)
+        }
+        finally { $env:PTRSETUP_SETTINGS = $null }
+    }
+
+    It 'falls back to a real folder to show when nothing is installed' {
+        . (Get-WindowFunction @('Get-StartingFolder'))
+
+        $env:PTRSETUP_SETTINGS = Join-Path $script:TestDrive 'settings.json'
+        $env:PTRSETUP_EXTRA_ROOTS = Join-Path $script:TestDrive 'no-game-here'
+        try {
+            # No saved folder, nothing detected: the box still opens on something
+            # the user can recognise and correct rather than an empty field.
+            Assert-Equal (Get-WowDefaultRoot) (Get-StartingFolder)
+        }
+        finally {
+            $env:PTRSETUP_SETTINGS = $null
+            $env:PTRSETUP_EXTRA_ROOTS = $null
+        }
     }
 }

@@ -103,3 +103,56 @@ Describe 'Accounts, realms and characters' {
         Assert-True (Test-PathWithin -Path $path -Parent $ptr.Path)
     }
 }
+
+Describe 'Finding the game folder' {
+
+    It 'returns the World of Warcraft folder, not the client folder inside it' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $env:PTRSETUP_EXTRA_ROOTS = $root
+        try {
+            Assert-Equal ([System.IO.Path]::GetFullPath($root)) (Find-WowFolder)
+        }
+        finally { $env:PTRSETUP_EXTRA_ROOTS = $null }
+    }
+
+    It 'accepts being pointed at a client folder and still reports its parent' {
+        # People paste whichever folder their explorer happens to be showing.
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $env:PTRSETUP_EXTRA_ROOTS = Join-Path $root '_classic_'
+        try {
+            Assert-Equal ([System.IO.Path]::GetFullPath($root)) (Find-WowFolder)
+        }
+        finally { $env:PTRSETUP_EXTRA_ROOTS = $null }
+    }
+
+    It 'returns nothing rather than guessing when there is no install' {
+        $env:PTRSETUP_EXTRA_ROOTS = Join-Path $script:TestDrive 'not-a-game-folder'
+        try {
+            Assert-Equal $null (Find-WowFolder)
+        }
+        finally { $env:PTRSETUP_EXTRA_ROOTS = $null }
+    }
+
+    It 'offers each candidate folder once' {
+        $env:PTRSETUP_EXTRA_ROOTS = @('/tmp/one', '/tmp/two', '/tmp/one') -join [System.IO.Path]::PathSeparator
+        try {
+            $candidates = @(Get-WowRootCandidate)
+            Assert-Equal @($candidates | Select-Object -Unique).Count $candidates.Count 'Candidates should be deduped.'
+        }
+        finally { $env:PTRSETUP_EXTRA_ROOTS = $null }
+    }
+
+    It 'looks only at local fixed disks' {
+        # Every PowerShell drive would include mapped network drives, where a
+        # Test-Path against a disconnected share blocks until it times out.
+        foreach ($drive in (Get-FixedDriveRoot)) {
+            Assert-True (Test-Path -LiteralPath $drive) "Reported a drive that is not there: $drive"
+        }
+    }
+
+    It 'always has a default folder to show, even with nothing installed' {
+        $default = Get-WowDefaultRoot
+        Assert-True ([bool]$default) 'There must always be something to put in the folder box.'
+        Assert-True ($default -match 'World of Warcraft') "Expected a WoW path, got $default"
+    }
+}

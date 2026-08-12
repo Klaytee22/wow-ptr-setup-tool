@@ -122,7 +122,8 @@
                     <TextBlock Text="WoW PTR UI Setup" FontSize="17" FontWeight="SemiBold" />
                     <TextBlock Style="{StaticResource Hint}" Text="Copy your live UI, addons and settings onto the test client." />
                 </StackPanel>
-                <Button Grid.Column="2" x:Name="RescanButton" Content="Rescan folders" VerticalAlignment="Center" />
+                <Button Grid.Column="2" x:Name="RescanButton" Content="Rescan" VerticalAlignment="Center"
+                        ToolTip="Re-read the folders — use this after launching the PTR or copying a character" />
             </Grid>
         </Border>
 
@@ -130,12 +131,35 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="18,16">
             <StackPanel>
 
-                <!-- 1. Clients -->
+                <!-- 1. Game folder and clients -->
                 <Border Style="{StaticResource Card}">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource SectionTitle}" Text="1 · Clients" />
-                        <TextBlock Style="{StaticResource Hint}" Text="Pick the client you play on and the PTR client to set up." />
+                        <TextBlock Style="{StaticResource SectionTitle}" Text="1 · Game folder" />
+                        <TextBlock Style="{StaticResource Hint}"
+                                   Text="The World of Warcraft folder — the one holding _retail_, _classic_ and the rest." />
                         <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Name="FolderBox"
+                                     Background="#171A22" Foreground="{StaticResource Text}"
+                                     BorderBrush="{StaticResource Line}" CaretBrush="{StaticResource Text}"
+                                     SelectionBrush="{StaticResource GoldDim}"
+                                     Padding="8,6" VerticalContentAlignment="Center"
+                                     FontSize="13" TextWrapping="NoWrap"
+                                     ToolTip="Type or paste the folder, then press Enter" />
+                            <Button Grid.Column="1" x:Name="BrowseButton" Content="Browse…" />
+                            <Button Grid.Column="2" x:Name="DetectButton" Content="Detect"
+                                    ToolTip="Look in the usual places for an installed copy" />
+                        </Grid>
+                        <TextBlock x:Name="FolderStatus" Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                        <TextBlock x:Name="InstallWarning" Foreground="{StaticResource Amber}" Margin="0,6,0,0" Visibility="Collapsed" />
+
+                        <Border Background="{StaticResource Line}" Height="1" Margin="0,14,0,0" />
+
+                        <Grid Margin="0,14,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -152,10 +176,6 @@
                                 <ComboBox x:Name="TargetInstallCombo" DisplayMemberPath="Display" />
                             </StackPanel>
                         </Grid>
-                        <TextBlock x:Name="InstallWarning" Foreground="{StaticResource Amber}" Margin="0,10,0,0" Visibility="Collapsed" />
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,10,0,0">
-                            <Button x:Name="BrowseButton" Content="Folder not listed? Browse…" Margin="0" />
-                        </StackPanel>
                     </StackPanel>
                 </Border>
 

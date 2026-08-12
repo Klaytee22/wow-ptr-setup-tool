@@ -94,27 +94,127 @@ function Test-MacHost {
     return [bool](Get-Variable -Name 'IsMacOS' -ValueOnly -ErrorAction SilentlyContinue)
 }
 
+# Where Battle.net puts a "World of Warcraft" folder, relative to a drive root.
+$script:WowRelativeRoots = @(
+    'Program Files (x86)/World of Warcraft'
+    'Program Files/World of Warcraft'
+    'World of Warcraft'
+    'Games/World of Warcraft'
+    'Battle.net/World of Warcraft'
+)
+
+# Blizzard records the install path when the game is installed. Reading it is
+# instant and exact, which beats looking in likely folders.
+$script:WowRegistryKeys = @(
+    'HKLM:\SOFTWARE\WOW6432Node\Blizzard Entertainment\World of Warcraft'
+    'HKLM:\SOFTWARE\Blizzard Entertainment\World of Warcraft'
+)
+
+function Get-WowDefaultRoot {
+    <#
+    .SYNOPSIS
+        The conventional install folder, for when nothing better is known.
+
+    .DESCRIPTION
+        What the window's folder box starts with on a machine where detection
+        comes up empty — a sensible thing to show and edit beats an empty box.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (Test-MacHost) { return '/Applications/World of Warcraft' }
+    if (-not (Test-WindowsHost)) { return (Join-Path $HOME 'World of Warcraft') }
+
+    # Read the folder rather than hard-coding C:, which is wrong on a machine
+    # that boots from another drive.
+    $programFiles = ${env:ProgramFiles(x86)}
+    if (-not $programFiles) { $programFiles = $env:ProgramFiles }
+    if (-not $programFiles) { return 'C:\Program Files (x86)\World of Warcraft' }
+    return (Join-Path $programFiles 'World of Warcraft')
+}
+
+function Get-FixedDriveRoot {
+    <#
+    .SYNOPSIS
+        Local fixed disks, as drive roots.
+
+    .DESCRIPTION
+        Deliberately not every PowerShell drive: a mapped network drive that is
+        no longer reachable makes each Test-Path against it block until it times
+        out, which is most of the way to a detection pass that appears to hang.
+        Games live on local disks.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $roots = foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+        try {
+            if ($drive.DriveType -ne [System.IO.DriveType]::Fixed) { continue }
+            if (-not $drive.IsReady) { continue }
+            $drive.RootDirectory.FullName
+        }
+        catch { continue }
+    }
+    return @($roots)
+}
+
+function Get-WowRegistryPath {
+    <#
+    .SYNOPSIS
+        Install paths Blizzard recorded in the registry, if any.
+
+    .DESCRIPTION
+        InstallPath usually names a client folder (…\World of Warcraft\_retail_)
+        rather than the parent, which is fine — Get-WowInstall accepts either.
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (-not (Test-WindowsHost)) { return @() }
+
+    $found = foreach ($key in $script:WowRegistryKeys) {
+        try {
+            $value = (Get-ItemProperty -Path $key -Name 'InstallPath' -ErrorAction Stop).InstallPath
+            if ($value) { $value.TrimEnd('\', '/') }
+        }
+        catch { continue }
+    }
+
+    # The uninstall entry is the fallback: present even when the key above is not.
+    try {
+        $uninstall = Get-ChildItem -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction Stop |
+            Where-Object { $_.PSChildName -like 'World of Warcraft*' }
+        $found = @($found) + @(foreach ($entry in $uninstall) {
+                $value = (Get-ItemProperty -Path $entry.PSPath -Name 'InstallLocation' -ErrorAction SilentlyContinue).InstallLocation
+                if ($value) { $value.TrimEnd('\', '/') }
+            })
+    }
+    catch { <# no uninstall key is not an error #> }
+
+    return @(@($found) | Where-Object { $_ } | Select-Object -Unique)
+}
+
 function Get-WowRootCandidate {
     <#
     .SYNOPSIS
-        Likely "World of Warcraft" parent folders for this machine.
+        Folders worth looking in for a WoW install, best guess first.
+
+    .DESCRIPTION
+        Ordered by how much each source is worth trusting, and kept cheap: the
+        registry is exact and costs one read, then a handful of conventional
+        folders on local disks. Nothing here walks a directory tree — a
+        filesystem-wide search for a folder this large is not worth the seconds
+        it takes when the window has a Browse button.
     #>
     [CmdletBinding()]
     param()
 
     $roots = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in (Get-WowRegistryPath)) { $roots.Add($path) }
 
     if (Test-WindowsHost) {
-        foreach ($drive in (Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue)) {
-            $letter = $drive.Root
-            foreach ($relative in @(
-                    'Program Files (x86)/World of Warcraft',
-                    'Program Files/World of Warcraft',
-                    'World of Warcraft',
-                    'Games/World of Warcraft',
-                    'Battle.net/World of Warcraft')) {
-                $roots.Add((Join-Path $letter $relative))
-            }
+        foreach ($drive in (Get-FixedDriveRoot)) {
+            foreach ($relative in $script:WowRelativeRoots) { $roots.Add((Join-Path $drive $relative)) }
         }
     }
     elseif (Test-MacHost) {
@@ -131,7 +231,30 @@ function Get-WowRootCandidate {
         }
     }
 
-    return $roots
+    return @(@($roots) | Select-Object -Unique)
+}
+
+function Find-WowFolder {
+    <#
+    .SYNOPSIS
+        The first folder on this machine that actually holds a WoW client, or
+        $null if none of the likely places has one.
+
+    .DESCRIPTION
+        Walks Get-WowRootCandidate cheapest-first and stops at the first hit, so
+        the usual case — the game where Blizzard put it — costs one registry read
+        and one directory listing. Returns the "World of Warcraft" folder rather
+        than the client folder inside it, since that is the one a person
+        recognises and the one worth showing them.
+    #>
+    [CmdletBinding()]
+    param()
+
+    foreach ($candidate in (Get-WowRootCandidate)) {
+        $found = @(Get-WowInstall -Path $candidate -SkipDefaultLocations)
+        if ($found.Count) { return $found[0].Root }
+    }
+    return $null
 }
 
 function Get-WowInstall {

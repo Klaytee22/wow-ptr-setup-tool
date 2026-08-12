@@ -9,6 +9,10 @@
         'Get-WowFlavor'
         'Get-WowInstall'
         'Get-WowRootCandidate'
+        'Find-WowFolder'
+        'Get-WowDefaultRoot'
+        'Get-FixedDriveRoot'
+        'Get-WowRegistryPath'
         'Test-WindowsHost'
         'Test-MacHost'
         'Select-WowInstallPair'
@@ -52,6 +56,9 @@
         'Set-PtrSetupAccount'
         'Set-PtrSetupAccountGuess'
         'Set-PtrSetupCharacterGuess'
+        'Get-PtrSetupSettingPath'
+        'Get-PtrSetupSetting'
+        'Save-PtrSetupSetting'
     )
     CmdletsToExport   = @()
     VariablesToExport = @()

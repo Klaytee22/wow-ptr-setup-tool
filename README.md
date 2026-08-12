@@ -10,7 +10,7 @@ character copy) it explains, then watches your folders and ticks itself off once
 see the step is done.
 
 ```
-┌─ 1 Clients ────────── live client  →  PTR client
+┌─ 1 Game folder ────── where WoW is, then live client  →  PTR client
 ├─ 2 Account & chars ── account folder pair + per-character mapping
 ├─ 3 Steps ─────────── 5 automated · 4 hand-held, each previewable
 └─ 4 Options & safety ─ what to include, and a one-click undo of any step
@@ -33,9 +33,13 @@ From a prompt, if you prefer:
 
 ```powershell
 .\PtrUiSetup.ps1                                  # the window
-.\PtrUiSetup.ps1 -Path 'D:\Games\World of Warcraft'  # extra folder to scan
+.\PtrUiSetup.ps1 -Path 'D:\Games\World of Warcraft'  # skip straight to a folder
 .\PtrUiSetup.ps1 -ListSteps                       # print the steps, no window
 ```
+
+You should not need any of those. The window has a folder box with **Browse** and
+**Detect** next to it, and remembers the folder you settle on, so the second launch
+opens on it.
 
 **Windows only** — WPF is. The module underneath is cross-platform and works from a
 console on macOS or Linux (see *Scripting it* below).
@@ -63,6 +67,25 @@ without touching settings, or the reverse.
 
 The copying is plain PowerShell (`Copy-Item`) against your folders. No server, no
 browser, no network access at any point.
+
+## Finding your install
+
+The window opens with a folder box, so there is nothing to configure and no flag to
+pass:
+
+- **It remembers.** The folder you settle on is saved to
+  `%LOCALAPPDATA%\PtrUiSetup\settings.json`, so the next launch opens on it.
+- **Otherwise it detects.** Blizzard records the install path in the registry, which is
+  one read and exact. Failing that it checks the handful of folders Battle.net installs
+  to, on local fixed disks only — a disconnected network drive would otherwise stall
+  the check for seconds at a time. Nothing searches your filesystem; that costs minutes
+  to find a folder you already know.
+- **Otherwise it shows the usual location** — `C:\Program Files (x86)\World of Warcraft`
+  — for you to correct.
+
+**Browse** picks a folder, **Detect** re-runs the search, and typing a path and pressing
+Enter works too. Either the folder your install is in or a client folder inside it is
+fine, since people paste whichever one Explorer happens to be showing.
 
 ## Safety
 
@@ -99,8 +122,9 @@ Modules/PtrUiSetup/
   ConfigWtf.ps1               parse/merge/render Config.wtf
   Steps.ps1                   the guide, expressed as data
   Session.ps1                 first-guess selection and keeping it consistent
+  Settings.ps1                remembers the folder you picked
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        123 tests, no game install and no Pester required
+tests/                        137 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -148,12 +172,12 @@ each of its entries.
 ## Development
 
 ```powershell
-./tests/Invoke-Tests.ps1                       # all 123
+./tests/Invoke-Tests.ps1                       # all 137
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
 
-**Unit tests** (`Detect`, `ConfigWtf`, `FileOps`, `Steps`, `Ui`) cover one function at a
-time against small fixtures. **Integration tests** (`Integration.Tests.ps1`) build the
+**Unit tests** (`Detect`, `ConfigWtf`, `FileOps`, `Settings`, `Steps`, `Ui`) cover one
+function at a time against small fixtures. **Integration tests** (`Integration.Tests.ps1`) build the
 real mock install from `tools/New-MockWowFolder.ps1` and walk the guide end to end,
 asserting on what lands on disk — one test per instruction in the guide, plus undo,
 idempotency, options, and awkward cases (PTR never launched, renamed account folder,
@@ -169,7 +193,8 @@ machines that have never seen the game — including CI, which runs it on PowerS
 There is no Pester dependency: `tests/TestRunner.ps1` is a ~100-line `Describe`/`It`
 harness, so the suite runs anywhere PowerShell does with nothing to install.
 
-To drive the window against a fake install instead of your real one:
+`PTRSETUP_EXTRA_ROOTS` adds folders to detection and `PTRSETUP_SETTINGS` moves the
+settings file, both of which the tests use to stay off the real machine:
 
 ```powershell
 $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
@@ -178,15 +203,17 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 123 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 137 passing tests, including an end-to-end pass over a realistic mock install.
 
 The window itself **has still not been opened on a real Windows machine**: WPF cannot run
 where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it
 parses both files, cross-checks every control the script uses against the XAML, and
 asserts the properties whose absence only shows up on screen (multi-line text boxes,
 no bare strings in a list that displays a property, every click handler wrapped so a
-failure cannot close the window). Rendering, layout and click behaviour still need a
-human on Windows. Expect first-run rough edges in the window; the file operations
+failure cannot close the window). It also lifts the folder-box functions out of the
+script by AST and runs them against a stub, so what the status line says and which
+folders get remembered are covered without WPF. Rendering, layout and click behaviour
+still need a human on Windows. Expect first-run rough edges in the window; the file operations
 underneath are the well-tested part — start with the mock install above.
 
 Known and unverified on Windows: the dark theme leaves the ComboBox dropdown popups on
