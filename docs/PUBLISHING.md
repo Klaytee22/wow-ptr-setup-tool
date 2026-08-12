@@ -16,8 +16,10 @@ git rev-parse --show-toplevel   # which repository am I in?
 git remote -v                   # where would a push go?
 ```
 
-If the first prints your PTR tool folder and the second prints `wow-ptr-ui-setup`, no
+If the first prints your PTR tool folder and the second prints `wow-ptr-setup-tool`, no
 command you run can reach another project.
+
+The repository is at <https://github.com/Klaytee22/wow-ptr-setup-tool>.
 
 ## Step 1 — get the code onto your machine
 
@@ -25,10 +27,10 @@ You have it as a **git bundle** — a single file holding the whole repository, 
 and all. Clone from it exactly as you would from a server:
 
 ```powershell
-cd ~\source        # or wherever you keep projects — anywhere except inside another repo
-git clone .\wow-ptr-ui-setup.bundle wow-ptr-ui-setup
-cd wow-ptr-ui-setup
-git log --oneline  # you should see the commit history
+cd ~\source            # or wherever you keep projects — anywhere except inside another repo
+git clone .\wow-ptr-ui-setup.bundle wow-ptr-setup-tool
+cd wow-ptr-setup-tool
+git log --oneline      # you should see the commit history
 ```
 
 > Do not unpack it inside another repository's folder. A repo inside a repo is legal but
@@ -37,23 +39,21 @@ git log --oneline  # you should see the commit history
 The bundle is now redundant — the clone is a full repository. Git will have set the
 bundle as `origin`; step 3 replaces that.
 
-## Step 2 — create the empty repository on GitHub
+## Step 2 — the empty repository on GitHub
 
-1. Go to <https://github.com/new>.
-2. **Owner**: your account. **Name**: `wow-ptr-ui-setup`.
-3. **Private** unless you want it public.
-4. **Do not** tick "Add a README", "Add .gitignore", or "Choose a license". The repo must
-   be empty, or the first push will be rejected for having unrelated histories.
-5. Create it. GitHub shows a URL like
-   `https://github.com/<you>/wow-ptr-ui-setup.git` — copy it.
+Already done: `Klaytee22/wow-ptr-setup-tool`.
+
+If you ever need another one: <https://github.com/new>, and **do not** tick "Add a
+README", "Add .gitignore" or "Choose a license" — the repo must be empty, or the first
+push is rejected for having unrelated histories.
 
 ## Step 3 — point this repo at it and push
 
 ```powershell
-cd ~\source\wow-ptr-ui-setup
+cd ~\source\wow-ptr-setup-tool
 
 git remote -v                    # currently points at the bundle
-git remote set-url origin https://github.com/<you>/wow-ptr-ui-setup.git
+git remote set-url origin https://github.com/Klaytee22/wow-ptr-setup-tool.git
 git remote -v                    # confirm it now points at GitHub
 
 git push -u origin main
@@ -62,7 +62,7 @@ git push -u origin main
 If `git remote -v` printed nothing at all, add it instead of setting it:
 
 ```powershell
-git remote add origin https://github.com/<you>/wow-ptr-ui-setup.git
+git remote add origin https://github.com/Klaytee22/wow-ptr-setup-tool.git
 git push -u origin main
 ```
 
@@ -72,7 +72,7 @@ suite on Windows PowerShell 5.1, PowerShell 7 (Windows and Linux), and PSScriptA
 ## Step 4 — day-to-day
 
 ```powershell
-cd ~\source\wow-ptr-ui-setup     # always start here
+cd ~\source\wow-ptr-setup-tool    # always start here
 git status                       # what changed
 git add -A
 git commit -m "Fix the thing"
@@ -86,7 +86,7 @@ git push
 | "Will this push into my other repo?" | `git push` sends to the `origin` of the repo you are standing in. Different folder, different `.git`, different remote. |
 | "Will its history get mixed in?" | Histories only merge if you explicitly fetch one into the other. Nothing here does. |
 | "Will my other repo's CI run this?" | Actions workflows only run for the repository they live in. |
-| "Could I overwrite the other repo by mistake?" | Only by setting this repo's `origin` to that repo's URL. Step 3 sets it to `wow-ptr-ui-setup` — read the URL back before pushing. |
+| "Could I overwrite the other repo by mistake?" | Only by setting this repo's `origin` to that repo's URL. Step 3 sets it to `wow-ptr-setup-tool` — read the URL back before pushing. |
 | "Do these share settings?" | No. Git config is per-repository, apart from your global name/email. |
 
 The one genuine footgun is copying the files *into* another repository's folder instead
@@ -94,8 +94,8 @@ of cloning them next to it. Keep them as sibling folders:
 
 ```
 ~\source\
-  the-other-project\        ← untouched
-  wow-ptr-ui-setup\         ← this
+  roblox-incremental-game-engine\   ← untouched
+  wow-ptr-setup-tool\               ← this
 ```
 
 ## If the push is rejected
