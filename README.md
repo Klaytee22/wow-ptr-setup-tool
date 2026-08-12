@@ -12,8 +12,8 @@ see the step is done.
 ```
 ┌─ 1 Clients ────────── live client  →  PTR client
 ├─ 2 Account & chars ── account folder pair + per-character mapping
-├─ 3 Steps ─────────── 6 automated · 3 hand-held, each previewable
-└─ 4 Options & safety ─ what to include, and one-click restore of any run
+├─ 3 Steps ─────────── 5 automated · 4 hand-held, each previewable
+└─ 4 Options & safety ─ what to include, and a one-click undo of any step
 ```
 
 ## Running it
@@ -23,6 +23,11 @@ Download or clone the repo, then **double-click `Start-PtrUiSetup.cmd`**.
 Nothing to install. It runs on the Windows PowerShell that ships with Windows, and the
 launcher passes `-ExecutionPolicy Bypass` for that one process, so no machine-wide
 setting changes.
+
+> **First time?** Don't point it at your real game folder yet. Run
+> `.\tools\New-MockWowFolder.ps1 -Launch` to build a fake install on your desktop and
+> open the window against that. [`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) walks the
+> whole thing through with the exact numbers you should see at each stage.
 
 From a prompt, if you prefer:
 
@@ -50,7 +55,7 @@ console on macOS or Linux (see *Scripting it* below).
 | 9 | Launch the PTR and check the UI | manual | Closing check, with a pointer back to Restore if something looks wrong |
 
 Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
-along with the four places this tool deliberately does something different (and why).
+along with the five places this tool deliberately does something different (and why).
 
 Every automated step is **previewable** — press *Preview changes* for the exact file
 list with nothing written — and **individually tickable**, so you can copy addons
@@ -63,10 +68,15 @@ browser, no network access at any point.
 
 - Nothing is written until you press **Apply** and confirm. The confirmation says how
   many files will be removed, and warns if WoW is still running.
-- Every run writes a backup to `_ptrsetup_backups\<timestamp>-<step>\` inside the PTR
-  folder. **Restore is a real undo**: replaced and deleted files go back, *and* files
-  the run added are removed, so the PTR client returns to exactly its prior state (an
-  integration test asserts this hash-for-hash).
+- Every step that writes anything backs it up first, to
+  `_ptrsetup_backups\<timestamp>-<step>\` inside the PTR folder. **Restore is a real
+  undo**: replaced and deleted files go back, *and* files the step added are removed,
+  so the PTR client returns to exactly its prior state (an integration test asserts
+  this hash-for-hash). One entry per step, so undoing a whole Apply means restoring
+  each of its entries.
+- Running it twice is a no-op. A file already on the PTR and identical to the live one
+  is left alone, so a second Apply reports every step finished rather than re-copying
+  and re-backing-up the lot.
 - Writes are constrained to the selected PTR folder — a planned write landing anywhere
   else aborts the run instead of touching it.
 - The tool never writes to your live client. It only reads from it (there is a test
@@ -127,6 +137,10 @@ one removed), check `WTF\Config.wtf` still says `logon-ptr`, Restore, Apply agai
 step reports "already up to date"). Delete the folder when you are done — nothing else
 on your machine is touched.
 
+[`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) is the same walkthrough in full, with the exact
+file counts and byte totals the window should be showing at each stage, so anything
+different is a finding rather than a guess.
+
 A backup is per step, not per Apply: an Apply that ran four steps leaves four backup
 entries, and Restore undoes the one you pick. Rolling a whole run back means restoring
 each of its entries.
@@ -177,10 +191,18 @@ underneath are the well-tested part — start with the mock install above.
 
 Known and unverified on Windows: the dark theme leaves the ComboBox dropdown popups on
 the system's light background, which is why their items are explicitly dark rather than
-inheriting the window's light text. Worth a look on a real screen.
+inheriting the window's light text. Worth a look on a real screen —
+[`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) ends with the short list of things only a human
+at a screen can settle.
 
-See [`docs/GUIDE.md`](docs/GUIDE.md) for the source guide and the deliberate
-deviations from it, [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it fits
-together, and [`docs/PUBLISHING.md`](docs/PUBLISHING.md) for getting this onto GitHub.
+## Docs
+
+- [`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) — try it against a fake install, step by
+  step, with the numbers to expect
+- [`docs/GUIDE.md`](docs/GUIDE.md) — the source guide, the instruction-to-step table,
+  the five deliberate deviations, and a coverage comparison against the other tool that
+  automates the same guide
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how it fits together and why
+- [`docs/PUBLISHING.md`](docs/PUBLISHING.md) — getting this onto GitHub
 
 MIT licensed.
