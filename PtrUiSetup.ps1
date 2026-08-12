@@ -445,6 +445,7 @@ function Update-Options {
     $script:Suppress = $true
     try {
         $ui.OverwriteOption.IsChecked = [bool]$script:Context.Options['Overwrite']
+        $ui.ReplaceAddOnsOption.IsChecked = [bool]$script:Context.Options['ReplaceAddOns']
         $ui.MacrosOption.IsChecked = [bool]$script:Context.Options['IncludeMacrosBindings']
         $ui.ChatOption.IsChecked = [bool]$script:Context.Options['IncludeChatCache']
         $ui.OutOfDateOption.IsChecked = [bool]$script:Context.Options['AllowOutOfDate']
@@ -490,9 +491,19 @@ function Invoke-Run {
     if (-not $stepIds) { return }
 
     if (-not $PreviewOnly) {
-        $answer = [System.Windows.MessageBox]::Show(
-            "Apply $($stepIds.Count) step(s) to $($script:Context.Target.Path)?`n`nOverwritten files are backed up first.",
-            'WoW PTR UI Setup', 'OKCancel', 'Question')
+        $planned = @(foreach ($id in $stepIds) { New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $id) -Context $script:Context })
+        $deletes = @($planned | Where-Object { $_.Kind -eq 'delete' }).Count
+        $message = "Apply $($stepIds.Count) step(s) to $($script:Context.Target.Path)?"
+        if ($deletes) { $message += "`n`n$deletes file(s) will be REMOVED from the PTR folder." }
+        $message += "`n`nEverything overwritten or removed is backed up first."
+
+        # WoW rewrites WTF as it exits, so copying under a running client is wasted work.
+        $running = @(Get-RunningWowProcess)
+        if ($running.Count) {
+            $message += "`n`nWarning: World of Warcraft is still running ($((@($running.Name | Select-Object -Unique)) -join ', ')). Quit it first, or the game will overwrite what is copied."
+        }
+
+        $answer = [System.Windows.MessageBox]::Show($message, 'WoW PTR UI Setup', 'OKCancel', 'Warning')
         if ($answer -ne 'OK') { return }
     }
 
@@ -565,10 +576,11 @@ $ui.TargetAccountCombo.Add_SelectionChanged({
     })
 
 $optionMap = @{
-    OverwriteOption = 'Overwrite'
-    MacrosOption    = 'IncludeMacrosBindings'
-    ChatOption      = 'IncludeChatCache'
-    OutOfDateOption = 'AllowOutOfDate'
+    OverwriteOption     = 'Overwrite'
+    ReplaceAddOnsOption = 'ReplaceAddOns'
+    MacrosOption        = 'IncludeMacrosBindings'
+    ChatOption          = 'IncludeChatCache'
+    OutOfDateOption     = 'AllowOutOfDate'
 }
 foreach ($controlName in $optionMap.Keys) {
     $ui[$controlName].Tag = $optionMap[$controlName]
@@ -587,11 +599,12 @@ $ui.RestoreButton.Add_Click({
         $backup = $ui.BackupCombo.SelectedItem
         if (-not $backup) { return }
         $answer = [System.Windows.MessageBox]::Show(
-            "Restore $($backup.FileCount) file(s) from $($backup.Id)?", 'WoW PTR UI Setup', 'OKCancel', 'Question')
+            "Undo $($backup.Id)?`n`n$($backup.FileCount) replaced file(s) go back, and $($backup.AddedCount) file(s) this run added are removed.",
+            'WoW PTR UI Setup', 'OKCancel', 'Question')
         if ($answer -ne 'OK') { return }
 
-        $restored = Restore-PtrSetupBackup -InstallPath $script:Context.Target.Path -BackupId $backup.Id
-        Write-Result "[ok]   Restored $restored file(s) from $($backup.Id)."
+        $undo = Restore-PtrSetupBackup -InstallPath $script:Context.Target.Path -BackupId $backup.Id
+        Write-Result "[ok]   Undid $($backup.Id): put back $($undo.Restored) file(s), removed $($undo.Removed) added file(s)."
         Update-All
     })
 

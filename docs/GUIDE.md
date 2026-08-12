@@ -1,60 +1,140 @@
 # The source guide
 
-This tool automates a written procedure. This file is where that procedure lives, so
-the step list in `Modules/PtrUiSetup/Steps.ps1` can be checked against it rather than
-against someone's memory.
-
-## Status: not yet transcribed
-
-The reference guide is a Reddit post in r/classicwowtbc:
-
-    https://www.reddit.com/r/classicwowtbc/s/fyaWbK0Q1o
-
-It has not been transcribed here yet — paste its text into the "Reference procedure"
-section below, then reconcile it against the implemented steps and delete this notice.
-
-Until that happens, the steps in `Steps.ps1` are built from the **standard, widely
-documented PTR UI copy procedure**, not from that specific post. Each step carries a
-`SourceNote` explaining why it exists, and those notes are what the reconciliation
-pass should replace with a pointer into the guide.
+This tool automates a written procedure. That procedure lives here, so the step list in
+`Modules/PtrUiSetup/Steps.ps1` can be checked against it rather than against someone's
+memory. Every step carries a `SourceNote` pointing back at the instruction it implements.
 
 ## Reference procedure
 
-> _(paste the guide here)_
+> **How to copy over addons, addon settings, keybindings, macros, and game settings over to the PTR:**
+>
+> Before doing anything, log onto the PTR, copy your character, log in, then exit the game.
+>
+> Make sure the PTR client is closed, as some settings will not save if you have it open.
+>
+> Open up two Windows Explorer windows. On one window, go to World of Warcraft -> classic. On the other, go to World of Warcraft -> classic_ptr.
+>
+> **Copying Addons**
+>
+> Step 1 - On classic, go to Interface -> Addons. Select all your addons and copy.
+>
+> Step 2 - On classic_ptr, go to Interface -> Addons. Delete any addons there if you have any. Paste your addons.
+>
+> **Copying Addon Settings**
+>
+> Step 1 - On classic, go to WTF -> Account -> Account Name/Number -> Realm -> Character -> OPEN Saved Variables. Copy all the files.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account -> Account Number -> Classic PTR Realm 1 -> Character -> OPEN Saved Variables. Paste and overwrite all the files.
+>
+> Addons will default to account-wide settings. Log in and go to each addon and copy the profile from your Live Character's profile.
+>
+> **Copying Game Settings**
+>
+> *Client-based Settings: Stuff like weather intensity and graphics.*
+>
+> Step 1 - On classic, go to WTF -> Account. Open "Config.wtf" in Notepad. Copy all the text.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account. Open "Config.wtf" in Notepad. Paste all the text and save.
+>
+> *Character-based Settings: Stuff like max camera distance and floating combat text.*
+>
+> Step 1 - On classic, go to WTF -> Account -> Account Name/Number -> Realm -> Character. Open "config-cache.wtf" in Notepad. Copy all the text.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account -> Account Number -> Classic PTR Realm 1 -> Character. Open "config-cache.wtf" in Notepad. Select all, paste all the text and save.
+>
+> **Copying Keybindings**
+>
+> *Account-wide Keybindings:*
+>
+> Step 1 - On classic, go to WTF -> Account -> Account Name/Number. Open "bindings-cache.wtf" in Notepad. Copy all the text.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account -> Account Number. Open "bindings-cache.wtf" in Notepad. Select all, paste all the text and save.
+>
+> *Character-specific Keybindings:*
+>
+> Step 1 - On classic, go to WTF -> Account -> Account Name/Number -> Realm -> Character. Open "bindings-cache.wtf" in Notepad. Copy all the text.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account -> Account Number -> Classic PTR Realm 1 -> Character. Open "bindings-cache.wtf" in Notepad. Select all, paste all the text and save.
+>
+> **Copying Macros**
+>
+> *Account-wide Macros:*
+>
+> Step 1 - On classic, go to WTF -> Account -> Account Name/Number. Open "macros-cache.wtf" in Notepad. Copy all the text.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account -> Account Number. Open "macros-cache.wtf" in Notepad. Select all, paste all the text and save.
+>
+> *Character-specific Macros:*
+>
+> Step 1 - On classic, go to WTF -> Account -> Account Name/Number -> Realm -> Character. Open "macros-cache.wtf" in Notepad. Copy all the text.
+>
+> Step 2 - On classic_ptr, go to WTF -> Account -> Account Number -> Classic PTR Realm 1 -> Character. Open "macros-cache.wtf" in Notepad. Select all, paste all the text and save.
 
-## Implemented steps
+Source: r/classicwowtbc, <https://www.reddit.com/r/classicwowtbc/s/fyaWbK0Q1o>
 
-| Step id | Mode | Why it exists |
-|---------|------|---------------|
-| `install_ptr_client` | manual | The PTR's `WTF` and `Interface` trees only exist after a first launch; without them there is nowhere to copy to. |
-| `copy_character` | manual | Per-character settings need a character folder on a PTR realm, which only Blizzard's character copy creates. |
-| `copy_addons` | auto | `Interface/AddOns` is the addon code itself. |
-| `copy_config_wtf` | auto | `Config.wtf` holds client-wide cvars — resolution, window mode, sound. |
-| `copy_account_saved_variables` | auto | `WTF/Account/<ACCOUNT>/SavedVariables` is where most addons keep profiles. |
-| `copy_character_data` | auto | Per-character `SavedVariables` plus `AddOns.txt` and `layout-local.txt`. |
-| `allow_out_of_date_addons` | auto | The PTR runs a higher interface version, so live addons read as out of date. |
-| `verify_in_game` | manual | The copy is only good if the client comes up with it. |
+## Instruction → step
 
-## Reconciliation checklist
+| Guide instruction | Step | Notes |
+|---|---|---|
+| "log onto the PTR, copy your character, log in, then exit" | `install_ptr_client`, `copy_character` | Both manual, both self-checking: the first watches for the PTR's `WTF` folder, the second for a character folder on a PTR realm |
+| "Make sure the PTR client is closed" | `quit_the_game` | Ticks itself off when no `Wow*` process is running; the Apply dialog warns again if one appears |
+| "Open up two Windows Explorer windows" | — | Replaced by the two client dropdowns |
+| Addons: copy all, delete any on the PTR, paste | `copy_addons` | The delete half is the **Replace the PTR addon folder** option, on by default |
+| Character `SavedVariables` | `copy_character_data` | |
+| "Addons will default to account-wide settings…" | `copy_account_saved_variables` | See deviation 1 — with this step, that manual profile-copying is unnecessary |
+| Client settings: `Config.wtf` | `copy_config_wtf` | See deviation 2 |
+| Character settings: `config-cache.wtf` | `copy_character_data` | |
+| Account keybindings: `bindings-cache.wtf` | `copy_account_saved_variables` | |
+| Character keybindings: `bindings-cache.wtf` | `copy_character_data` | |
+| Account macros | `copy_account_saved_variables` | See note 3 on the file extension |
+| Character macros | `copy_character_data` | |
+| — | `allow_out_of_date_addons` | Addition: the PTR runs a higher interface version, so live addons load only with `checkAddonVersion "0"` |
+| — | `verify_in_game` | Addition: closing check |
 
-When the guide text lands, walk it and confirm for each instruction:
+## Where this tool deviates, and why
 
-- [ ] Is there a step for it? If not, add a `New-PtrSetupStep` entry to `$script:PtrSetupSteps`.
-- [ ] Does the guide's ordering match the order in `$script:PtrSetupSteps`?
-- [ ] Does the guide copy anything this tool does not (e.g. `chat-cache.txt`,
-      `config-cache.wtf`, `bindings-cache.wtf`)? Those are options today — check the
-      defaults match the guide's advice.
-- [ ] Does the guide say to copy `Config.wtf` wholesale? This tool deliberately merges
-      instead, keeping the PTR's `realmList`/`portal`. If the guide has a reason to
-      copy it whole, capture that reason here before changing the behaviour.
-- [ ] Are any steps guide-specific to one expansion's PTR cycle (folder names,
-      character-copy flow)? Those need to stay data-driven rather than hardcoded.
-- [ ] Replace each step's `SourceNote` with a reference into this file.
+**1. It also copies account-level `SavedVariables`.** The guide only copies the
+character folder, then says: *"Addons will default to account-wide settings. Log in and
+go to each addon and copy the profile from your Live Character's profile."* That manual
+step exists because the account-wide profiles never came across. Copying
+`WTF\Account\<ACCOUNT>\SavedVariables` too brings them, so most addons come up already
+configured. It is a separate, tickable step — untick it to follow the guide exactly.
+
+**2. `Config.wtf` is merged, not pasted wholesale.** The guide pastes the whole file.
+A live `Config.wtf` contains `realmList` and `portal` pointing at live login servers,
+and pasting those into the PTR client can send it at live realms. The merge takes every
+live setting *except* the client-identity keys
+(`realmList`, `realmName`, `portal`, `agentUID`, `accountName`, `lastCharacterIndex`),
+which keep the PTR's own values. Everything the guide is actually after — resolution,
+window mode, weather density, graphics quality, volume — comes across. An integration
+test asserts both halves of this.
+
+**3. The macro cache is `macros-cache.txt`, not `.wtf`.** The guide writes
+"macros-cache.wtf". WoW writes `macros-cache.txt`. Both names are planned and whichever
+exists is copied, so the tool is right either way and a future rename cannot break it.
+
+**4. `Config.wtf` lives in `WTF\`, not `WTF\Account\`.** The guide says
+"go to WTF -> Account. Open Config.wtf" for client settings; the file is one level up,
+at `WTF\Config.wtf`. The tool uses the real location.
+
+**5. Deleting the PTR addon folder is reversible here.** The guide says delete; this
+copies everything it removes into a backup first, so Restore puts it back — including
+addons that only ever existed on the PTR.
+
+## Things the guide gets right that are easy to miss
+
+- **The realm folder is named differently on the PTR** ("Classic PTR Realm 1"), so the
+  character mapping is explicit in the window rather than matched by path.
+- **The account folder may be named differently too** ("Account Name/Number" vs
+  "Account Number"), which is why both sides have their own account dropdown.
+- **Quitting the game matters.** WoW rewrites `WTF` on exit, so anything copied while
+  it is running is silently undone.
 
 ## Client folder names
 
-The tool recognises these client folders inside a `World of Warcraft` install; live and
-PTR clients on the same `line` are what it pairs up automatically.
+The guide says `classic` and `classic_ptr`; on disk those are `_classic_` and
+`_classic_ptr_`. The tool recognises the whole family, and pairs a live client with the
+PTR client on the same `line` automatically.
 
 | Folder | Label | Line | PTR? |
 |--------|-------|------|------|
@@ -71,3 +151,16 @@ PTR clients on the same `line` are what it pairs up automatically.
 
 Blizzard adds folders over time; new ones go in `$script:WowFlavors` in
 `Modules/PtrUiSetup/Detect.ps1` and need no other change.
+
+## If the guide changes
+
+Walk the new text and check, for each instruction:
+
+- [ ] Is there a step for it? If not, add a `New-PtrSetupStep` entry to `$script:PtrSetupSteps`.
+- [ ] Does the ordering still match `$script:PtrSetupSteps`?
+- [ ] Does it name a file the tool does not copy? File lists are the `$script:*Files`
+      constants at the top of `Steps.ps1`.
+- [ ] Does it contradict a deviation above? Update the reasoning here before changing
+      the behaviour.
+- [ ] Add an integration test in `tests/Integration.Tests.ps1` asserting the new
+      instruction's outcome on the mock install.

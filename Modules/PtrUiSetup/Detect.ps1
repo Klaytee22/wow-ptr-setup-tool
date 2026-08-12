@@ -215,6 +215,23 @@ function Select-WowInstallPair {
     return [pscustomobject]@{ Source = ($live | Select-Object -First 1); Target = $ptr[0] }
 }
 
+function Get-RunningWowProcess {
+    <#
+    .SYNOPSIS
+        Any running World of Warcraft client, live or PTR.
+
+    .DESCRIPTION
+        The guide is emphatic about this: WoW rewrites its WTF files when it
+        exits, so anything copied while the client is open is silently undone.
+        Every client executable starts with "Wow" — Wow.exe, WowClassic.exe,
+        WowT.exe, WowClassicT.exe — so one pattern covers them all.
+    #>
+    [CmdletBinding()]
+    param()
+
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'Wow*' })
+}
+
 function Get-WowAccount {
     <#
     .SYNOPSIS

@@ -17,9 +17,15 @@
 #>
 
 # Per-character files that carry UI state alongside SavedVariables.
+# config-cache.wtf is the character's own settings — camera distance, floating
+# combat text — and bindings/macros are the per-character halves of those.
+# The guide writes the macro cache as "macros-cache.wtf"; the file WoW actually
+# writes is macros-cache.txt. Both names are planned, and whichever exists gets
+# copied, so the tool is right either way.
 $script:CharacterLayoutFiles = @('AddOns.txt', 'layout-local.txt')
-$script:CharacterExtraFiles = @('macros-cache.txt', 'bindings-cache.wtf')
-$script:AccountExtraFiles = @('macros-cache.txt', 'bindings-cache.wtf', 'config-cache.wtf')
+$script:CharacterSettingFiles = @('config-cache.wtf')
+$script:CharacterExtraFiles = @('macros-cache.txt', 'macros-cache.wtf', 'bindings-cache.wtf')
+$script:AccountExtraFiles = @('macros-cache.txt', 'macros-cache.wtf', 'bindings-cache.wtf', 'config-cache.wtf')
 
 function New-PtrSetupContext {
     <#
@@ -41,6 +47,9 @@ function New-PtrSetupContext {
         IncludeMacrosBindings = $true
         IncludeChatCache      = $false
         AllowOutOfDate        = $true
+        # The guide clears the PTR addon folder before pasting. Everything removed
+        # is backed up, so this stays reversible.
+        ReplaceAddOns         = $true
     }
     if ($Options) {
         foreach ($key in $Options.Keys) { $defaults[$key] = $Options[$key] }
@@ -172,11 +181,29 @@ $script:PtrSetupSteps = @(
         return New-PtrSetupStepStatus -State 'ready' -Detail 'No PTR characters found yet.'
     }
 
+    New-PtrSetupStep -Id 'quit_the_game' -Mode 'manual' `
+        -Title 'Quit World of Warcraft before copying' `
+        -Summary 'WoW rewrites its settings files when it exits, undoing anything copied while it is open.' `
+        -SourceNote 'Guide: "Make sure the PTR client is closed, as some settings will not save if you have it open."' `
+        -Instructions @'
+1. Quit both the live client and the PTR client — not just the character screen, the whole game.
+2. The Battle.net launcher can stay open.
+3. This step ticks itself once no WoW process is running.
+'@ `
+        -Status {
+        param($Context)
+        $running = @(Get-RunningWowProcess)
+        if ($running.Count -gt 0) {
+            return New-PtrSetupStepStatus -State 'ready' -Detail ("Still running: " + (@($running.Name | Select-Object -Unique) -join ', ') + '. Quit the game, then press Rescan.')
+        }
+        return New-PtrSetupStepStatus -State 'done' -Detail 'No WoW client is running.'
+    }
+
     New-PtrSetupStep -Id 'copy_addons' -Mode 'auto' `
         -Title 'Copy your addons' `
         -Summary 'Copies Interface\AddOns from the live client to the PTR client.' `
         -SourceNote 'The addon folder itself — without it, the copied settings have nothing to configure.' `
-        -Instructions 'Addons are plain folders, so this is a straight copy. Anything already on the PTR with the same name is backed up first, so a newer PTR-specific build can be restored.' `
+        -Instructions 'Addons are plain folders, so this is a straight copy. With "Replace the PTR addon folder" ticked (the guide''s "delete any addons there, then paste yours") anything on the PTR that is not in your live client is removed as well. Everything removed or overwritten is backed up first.' `
         -Prerequisite {
         param($Context)
         if (-not (Test-Path -LiteralPath $Context.Source.AddOns -PathType Container)) {
@@ -187,7 +214,8 @@ $script:PtrSetupSteps = @(
         -Plan {
         param($Context)
         return New-TreeCopyPlan -Source $Context.Source.AddOns -Destination $Context.Target.AddOns `
-            -Overwrite (Get-ContextOption -Context $Context -Name 'Overwrite')
+            -Overwrite (Get-ContextOption -Context $Context -Name 'Overwrite') `
+            -Prune:(Get-ContextOption -Context $Context -Name 'ReplaceAddOns')
     }
 
     New-PtrSetupStep -Id 'copy_config_wtf' -Mode 'auto' `
@@ -225,7 +253,7 @@ $script:PtrSetupSteps = @(
         -Title 'Copy account-wide addon settings' `
         -Summary 'Copies WTF\Account\<ACCOUNT>\SavedVariables — the profiles shared by all your characters.' `
         -SourceNote 'Account-level SavedVariables: where most addons keep their profiles.' `
-        -Instructions 'Your live and PTR account folder names are usually identical, but if they differ pick the right pair above — copying into the wrong account folder silently does nothing in game.' `
+        -Instructions 'Your live and PTR account folder names are usually identical, but if they differ pick the right pair above — copying into the wrong account folder silently does nothing in game. The guide skips this folder, which is why it then tells you to re-pick each addon profile in game; copying it means your account-wide profiles come across and you do not have to.' `
         -Prerequisite {
         param($Context)
         if (-not $Context.SourceAccount -or -not $Context.TargetAccount) {
@@ -258,7 +286,7 @@ $script:PtrSetupSteps = @(
         -Title 'Copy per-character settings' `
         -Summary "Copies each mapped character's SavedVariables, addon list and frame layout." `
         -SourceNote 'Character-level SavedVariables, plus the layout files that make the UI come up arranged.' `
-        -Instructions 'Each row maps one live character onto one PTR character. Realm names differ between live and PTR, so check the mapping before applying — data lands in the PTR character''s folder.' `
+        -Instructions 'Each row maps one live character onto one PTR character. Realm names differ between live and PTR (the PTR realm is usually something like "Classic PTR Realm 1"), so check the mapping before applying. Covers the character''s addon settings, addon list, frame layout, config-cache.wtf (camera distance, floating combat text), keybinds and macros.' `
         -Prerequisite {
         param($Context)
         if ($Context.Character.Count -eq 0) { return 'Map at least one character first.' }
@@ -267,7 +295,7 @@ $script:PtrSetupSteps = @(
         -Plan {
         param($Context)
         $overwrite = Get-ContextOption -Context $Context -Name 'Overwrite'
-        $names = @($script:CharacterLayoutFiles)
+        $names = @($script:CharacterLayoutFiles) + $script:CharacterSettingFiles
         if (Get-ContextOption -Context $Context -Name 'IncludeMacrosBindings') { $names += $script:CharacterExtraFiles }
         if (Get-ContextOption -Context $Context -Name 'IncludeChatCache' -Default $false) { $names += 'chat-cache.txt' }
 

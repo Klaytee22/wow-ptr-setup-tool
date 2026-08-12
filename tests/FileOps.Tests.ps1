@@ -135,7 +135,7 @@ Describe 'Backups' {
         Assert-Equal 1 $backups[0].FileCount
         Assert-Equal 'step' $backups[0].Label
 
-        Assert-Equal 1 (Restore-PtrSetupBackup -InstallPath $install -BackupId $backups[0].Id)
+        Assert-Equal 1 (Restore-PtrSetupBackup -InstallPath $install -BackupId $backups[0].Id).Restored
         Assert-Equal 'original' (Get-Content -LiteralPath (Join-Path $install 'WTF/a.lua') -Raw)
     }
 
@@ -201,5 +201,84 @@ Describe 'Cross-edition helpers' {
         $action = New-FileAction -Kind 'create' -Destination (Join-Path $install 'WTF/Config.wtf') -Content $text
         $null = Invoke-FileActionPlan -Action @($action) -InstallPath $install -Label 'config'
         Assert-Equal $text ([System.IO.File]::ReadAllText((Join-Path $install 'WTF/Config.wtf')))
+    }
+}
+
+Describe 'Pruning' {
+
+    It 'plans a delete for files the source does not have' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'keep.lua') -Content 'keep'
+        $null = New-TestFile -Path (Join-Path $dest 'keep.lua') -Content 'old'
+        $null = New-TestFile -Path (Join-Path $dest 'stale.lua') -Content 'stale'
+
+        $plan = @(New-TreeCopyPlan -Source $source -Destination $dest -Prune)
+        $deletes = @($plan | Where-Object { $_.Kind -eq 'delete' })
+        Assert-Equal 1 $deletes.Count
+        Assert-True $deletes[0].Destination.EndsWith('stale.lua')
+        Assert-Equal 'not in the live client' $deletes[0].Note
+    }
+
+    It 'plans no deletes without -Prune' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'keep.lua') -Content 'keep'
+        $null = New-TestFile -Path (Join-Path $dest 'stale.lua') -Content 'stale'
+        Assert-Equal 0 @(@(New-TreeCopyPlan -Source $source -Destination $dest) | Where-Object { $_.Kind -eq 'delete' }).Count
+    }
+
+    It 'backs up deleted files, and restore brings them back' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $install 'Interface/AddOns'
+        $null = New-TestFile -Path (Join-Path $source 'Mine/Mine.lua') -Content 'mine'
+        $null = New-TestFile -Path (Join-Path $dest 'Stale/Stale.lua') -Content 'stale'
+
+        $plan = New-TreeCopyPlan -Source $source -Destination $dest -Prune
+        $result = Invoke-FileActionPlan -Action $plan -InstallPath $install -Label 'copy_addons'
+
+        Assert-False (Test-Path -LiteralPath (Join-Path $dest 'Stale/Stale.lua'))
+        Assert-True (Test-Path -LiteralPath (Join-Path $dest 'Mine/Mine.lua'))
+
+        $null = Restore-PtrSetupBackup -InstallPath $install -BackupId (Get-PtrSetupBackup -InstallPath $install)[0].Id
+        Assert-Equal 'stale' (Get-Content -LiteralPath (Join-Path $dest 'Stale/Stale.lua') -Raw)
+    }
+
+    It 'removes folders left empty by a delete' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $install 'Interface/AddOns'
+        $null = New-TestFile -Path (Join-Path $source 'Mine/Mine.lua') -Content 'mine'
+        $null = New-TestFile -Path (Join-Path $dest 'Stale/Stale.lua') -Content 'stale'
+
+        $null = Invoke-FileActionPlan -Action (New-TreeCopyPlan -Source $source -Destination $dest -Prune) `
+            -InstallPath $install -Label 'copy_addons'
+
+        # An empty addon folder is listed in game as a broken addon.
+        Assert-False (Test-Path -LiteralPath (Join-Path $dest 'Stale'))
+        Assert-True (Test-Path -LiteralPath $dest)
+    }
+
+    It 'never deletes outside the selected client folder' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $outside = New-TestFile -Path (Join-Path $script:TestDrive 'live.lua') -Content 'live'
+        $action = New-FileAction -Kind 'delete' -Destination $outside -Size 4
+
+        Assert-Throws { Invoke-FileActionPlan -Action @($action) -InstallPath $install -Label 'bad' } -Match 'outside'
+        Assert-True (Test-Path -LiteralPath $outside)
+    }
+
+    It 'writes nothing on a preview that contains deletes' {
+        $install = Join-Path $script:TestDrive '_classic_ptr_'
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $install 'Interface/AddOns'
+        $null = New-TestFile -Path (Join-Path $source 'Mine/Mine.lua') -Content 'mine'
+        $null = New-TestFile -Path (Join-Path $dest 'Stale/Stale.lua') -Content 'stale'
+
+        $null = Invoke-FileActionPlan -Action (New-TreeCopyPlan -Source $source -Destination $dest -Prune) `
+            -InstallPath $install -Label 'x' -PreviewOnly
+        Assert-True (Test-Path -LiteralPath (Join-Path $dest 'Stale/Stale.lua'))
     }
 }

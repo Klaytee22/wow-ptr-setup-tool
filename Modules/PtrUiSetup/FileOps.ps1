@@ -23,11 +23,12 @@ function New-FileAction {
     .DESCRIPTION
         Most actions copy Source to Destination. A step that generates a file
         instead (the Config.wtf merge) leaves Source empty and supplies Content,
-        which Invoke-FileActionPlan writes verbatim.
+        which Invoke-FileActionPlan writes verbatim. A 'delete' action has only a
+        Destination — the file is backed up, then removed.
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [ValidateSet('create', 'overwrite', 'skip')] [string] $Kind,
+        [Parameter(Mandatory)] [ValidateSet('create', 'overwrite', 'skip', 'delete')] [string] $Kind,
         [string] $Source,
         [Parameter(Mandatory)] [string] $Destination,
         [long] $Size = 0,
@@ -135,12 +136,18 @@ function New-TreeCopyPlan {
     <#
     .SYNOPSIS
         Plan a recursive copy of Source onto Destination without touching disk.
+
+    .PARAMETER Prune
+        Also plan deletes for files under Destination that Source does not have,
+        making the destination a mirror rather than a merge. This is what "delete
+        any addons there, then paste yours" means in file terms.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Source,
         [Parameter(Mandatory)] [string] $Destination,
         [bool] $Overwrite = $true,
+        [switch] $Prune,
         [string[]] $Exclude = $script:DefaultExcludes
     )
 
@@ -157,6 +164,16 @@ function New-TreeCopyPlan {
             $actions.Add((New-FileAction -Kind 'skip' -Source $file.FullName -Destination $target -Size $file.Length -Note 'already exists'))
         }
     }
+
+    if ($Prune) {
+        $wanted = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($file in (Get-RelativeFile -Root $Source -Exclude $Exclude)) { $null = $wanted.Add($file.Relative) }
+        foreach ($file in (Get-RelativeFile -Root $Destination -Exclude $Exclude)) {
+            if ($wanted.Contains($file.Relative)) { continue }
+            $actions.Add((New-FileAction -Kind 'delete' -Destination $file.FullName -Size $file.Length -Note 'not in the live client'))
+        }
+    }
+
     return @($actions)
 }
 
@@ -212,7 +229,7 @@ function Invoke-FileActionPlan {
         [scriptblock] $OnProgress
     )
 
-    $todo = @($Action | Where-Object { $_.Kind -in @('create', 'overwrite') })
+    $todo = @($Action | Where-Object { $_.Kind -in @('create', 'overwrite', 'delete') })
 
     foreach ($item in $todo) {
         if (-not (Test-PathWithin -Path $item.Destination -Parent $InstallPath)) {
@@ -225,36 +242,50 @@ function Invoke-FileActionPlan {
         return [pscustomobject]@{ Performed = $performed; BackupPath = $null }
     }
 
-    # Back up everything about to be replaced, with a manifest for the restore.
-    $backupPath = $null
-    $overwrites = @($todo | Where-Object { $_.Kind -eq 'overwrite' })
-    if ($overwrites) {
-        $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-        $safeLabel = ($Label -replace '[^\w\-]', '-')
-        $backupPath = Join-Path (Get-BackupRoot -InstallPath $InstallPath) "$stamp-$safeLabel"
-        $entries = [System.Collections.Generic.List[psobject]]::new()
+    # Back up everything about to be replaced or removed, and note everything
+    # about to be created, so Restore can undo the run completely rather than
+    # leaving newly-copied files behind.
+    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    $safeLabel = ($Label -replace '[^\w\-]', '-')
+    $backupPath = Join-Path (Get-BackupRoot -InstallPath $InstallPath) "$stamp-$safeLabel"
+    $replaced = @($todo | Where-Object { $_.Kind -in @('overwrite', 'delete') })
+    $entries = [System.Collections.Generic.List[psobject]]::new()
 
-        foreach ($item in $overwrites) {
-            $relative = Get-PathRelative -Base $InstallPath -Path $item.Destination
-            $target = Join-Path $backupPath $relative
-            $null = New-Item -ItemType Directory -Path (Split-Path -Path $target -Parent) -Force
-            Copy-Item -LiteralPath $item.Destination -Destination $target -Force
-            $entries.Add([pscustomobject]@{ Relative = $relative; RestoredTo = $item.Destination })
-        }
-
-        $manifest = [pscustomobject]@{
-            Label   = $Label
-            Install = $InstallPath
-            Created = (Get-Date).ToString('s')
-            Files   = @($entries)
-        }
-        Write-TextFileNoBom -Path (Join-Path $backupPath $script:BackupManifestName) `
-            -Content ($manifest | ConvertTo-Json -Depth 5)
+    foreach ($item in $replaced) {
+        $relative = Get-PathRelative -Base $InstallPath -Path $item.Destination
+        $target = Join-Path $backupPath $relative
+        $null = New-Item -ItemType Directory -Path (Split-Path -Path $target -Parent) -Force
+        Copy-Item -LiteralPath $item.Destination -Destination $target -Force
+        $entries.Add([pscustomobject]@{ Relative = $relative; RestoredTo = $item.Destination })
     }
 
+    $added = foreach ($item in @($todo | Where-Object { $_.Kind -eq 'create' })) {
+        Get-PathRelative -Base $InstallPath -Path $item.Destination
+    }
+
+    $manifest = [pscustomobject]@{
+        Label   = $Label
+        Install = $InstallPath
+        Created = (Get-Date).ToString('s')
+        Files   = @($entries)
+        Added   = @($added)
+    }
+    $null = New-Item -ItemType Directory -Path $backupPath -Force
+    Write-TextFileNoBom -Path (Join-Path $backupPath $script:BackupManifestName) `
+        -Content ($manifest | ConvertTo-Json -Depth 5)
+
     $index = 0
+    $emptied = [System.Collections.Generic.List[string]]::new()
     foreach ($item in $todo) {
         $index++
+
+        if ($item.Kind -eq 'delete') {
+            Remove-Item -LiteralPath $item.Destination -Force -ErrorAction SilentlyContinue
+            $emptied.Add((Split-Path -Path $item.Destination -Parent))
+            if ($OnProgress) { & $OnProgress $index $todo.Count }
+            continue
+        }
+
         $parent = Split-Path -Path $item.Destination -Parent
         if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
             $null = New-Item -ItemType Directory -Path $parent -Force
@@ -273,7 +304,35 @@ function Invoke-FileActionPlan {
         if ($OnProgress) { & $OnProgress $index $todo.Count }
     }
 
+    Remove-EmptyFolder -Path $emptied -Stop $InstallPath
+
     return [pscustomobject]@{ Performed = $todo; BackupPath = $backupPath }
+}
+
+function Remove-EmptyFolder {
+    <#
+    .SYNOPSIS
+        Tidy up folders left empty by deletes, walking up but never past -Stop.
+
+    .DESCRIPTION
+        Deleting every file in Interface\AddOns\SomeAddon leaves the folder
+        behind, and WoW lists empty addon folders as broken addons.
+    #>
+    [CmdletBinding()]
+    param(
+        [AllowEmptyCollection()] [string[]] $Path,
+        [Parameter(Mandatory)] [string] $Stop
+    )
+
+    foreach ($folder in @($Path | Select-Object -Unique)) {
+        $current = $folder
+        while ($current -and (Test-PathWithin -Path $current -Parent $Stop)) {
+            if (-not (Test-Path -LiteralPath $current -PathType Container)) { break }
+            if (@(Get-ChildItem -LiteralPath $current -Force -ErrorAction SilentlyContinue).Count -gt 0) { break }
+            Remove-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+            $current = Split-Path -Path $current -Parent
+        }
+    }
 }
 
 function Get-PtrSetupBackup {
@@ -299,13 +358,16 @@ function Get-PtrSetupBackup {
         # ConvertFrom-Json turns the stored timestamp into a DateTime, which
         # would otherwise render in whatever format the machine's locale likes.
         $created = try { ([datetime]$manifest.Created).ToString('yyyy-MM-dd HH:mm') } catch { [string]$manifest.Created }
+        $replacedCount = @($manifest.Files).Count
+        $addedCount = if ($manifest.PSObject.Properties.Name -contains 'Added') { @($manifest.Added).Count } else { 0 }
         [pscustomobject]@{
-            Id        = $folder.Name
-            Path      = $folder.FullName
-            Label     = $manifest.Label
-            Created   = $created
-            FileCount = @($manifest.Files).Count
-            Display   = ('{0} — {1} — {2} file(s)' -f $manifest.Label, $created, @($manifest.Files).Count)
+            Id         = $folder.Name
+            Path       = $folder.FullName
+            Label      = $manifest.Label
+            Created    = $created
+            FileCount  = $replacedCount
+            AddedCount = $addedCount
+            Display    = ('{0} — {1} — {2} replaced, {3} added' -f $manifest.Label, $created, $replacedCount, $addedCount)
         }
     }
     return @($backups)
@@ -314,12 +376,21 @@ function Get-PtrSetupBackup {
 function Restore-PtrSetupBackup {
     <#
     .SYNOPSIS
-        Put a backup's files back where they came from. Returns the file count.
+        Undo a run: put replaced files back, and remove the files it added.
+
+    .DESCRIPTION
+        Restoring only the overwritten files would leave every newly-copied file
+        behind, which is not what "undo" means to someone who has just watched a
+        step go wrong. The manifest records both halves.
+
+    .PARAMETER KeepAdded
+        Put replaced files back but leave added files in place.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $InstallPath,
-        [Parameter(Mandatory)] [string] $BackupId
+        [Parameter(Mandatory)] [string] $BackupId,
+        [switch] $KeepAdded
     )
 
     $folder = Join-Path (Get-BackupRoot -InstallPath $InstallPath) $BackupId
@@ -341,7 +412,21 @@ function Restore-PtrSetupBackup {
         Copy-Item -LiteralPath $source -Destination $destination -Force
         $restored++
     }
-    return $restored
+
+    $removed = 0
+    $emptied = [System.Collections.Generic.List[string]]::new()
+    if (-not $KeepAdded -and $manifest.PSObject.Properties.Name -contains 'Added') {
+        foreach ($relative in @($manifest.Added)) {
+            $destination = Join-Path $InstallPath $relative
+            if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) { continue }
+            Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+            $emptied.Add((Split-Path -Path $destination -Parent))
+            $removed++
+        }
+        Remove-EmptyFolder -Path $emptied -Stop $InstallPath
+    }
+
+    return [pscustomobject]@{ Restored = $restored; Removed = $removed }
 }
 
 function Format-ByteSize {

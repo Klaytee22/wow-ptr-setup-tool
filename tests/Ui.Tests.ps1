@@ -90,7 +90,8 @@ Describe 'The window and its XAML' {
         # -ListSteps is the console path through the same registry the window renders.
         $ids = @((Get-PtrSetupStep).Id)
         Assert-True ($ids -contains 'copy_addons')
-        Assert-Equal 8 $ids.Count
+        Assert-True ($ids -contains 'quit_the_game')
+        Assert-Equal 9 $ids.Count
         Assert-Equal @($ids | Sort-Object -Unique).Count $ids.Count 'Step ids must be unique.'
     }
 }
