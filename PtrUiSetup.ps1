@@ -43,6 +43,18 @@ if (-not (Test-WindowsHost)) {
     throw 'The window needs Windows. The module still works: Import-Module ./Modules/PtrUiSetup, then Initialize-PtrSetupContext and Invoke-PtrSetup.'
 }
 
+# WPF has to be built on a single-threaded-apartment thread. Start-PtrUiSetup.cmd
+# passes -STA, and both consoles default to it, but a session started with -MTA
+# would otherwise fail several lines later with a much less helpful message.
+if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne [System.Threading.ApartmentState]::STA) {
+    throw @'
+This PowerShell session is multi-threaded (MTA), and WPF needs a single-threaded one.
+
+Double-click Start-PtrUiSetup.cmd, or from a prompt:
+    powershell.exe -STA -File .\PtrUiSetup.ps1
+'@
+}
+
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
 # --------------------------------------------------------------------------

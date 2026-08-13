@@ -145,6 +145,16 @@ Describe 'The window and its XAML' {
         Assert-True ($text -match 'Save-PtrSetupSetting') 'A corrected folder should be remembered.'
     }
 
+    It 'checks for an STA thread before asking WPF for a window' {
+        # Only Start-PtrUiSetup.cmd passes -STA. Someone running the script from
+        # an MTA session should be told what to do, not handed a WPF stack trace.
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -match 'GetApartmentState') 'The window should check its apartment state first.'
+        $staCheck = $text.IndexOf('GetApartmentState')
+        $addType = $text.IndexOf('Add-Type -AssemblyName PresentationFramework')
+        Assert-True ($staCheck -lt $addType) 'The check has to come before WPF is loaded.'
+    }
+
     It 'keeps the step ids in the module and the launcher in step' {
         # -ListSteps is the console path through the same registry the window renders.
         $ids = @((Get-PtrSetupStep).Id)

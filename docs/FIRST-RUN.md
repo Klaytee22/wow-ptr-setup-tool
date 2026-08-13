@@ -28,6 +28,10 @@ the PTR side and see whether it genuinely came across.
 > If the window does not appear at all, run `.\PtrUiSetup.ps1 -ListSteps` — that uses
 > the same module without WPF. If it prints nine steps, the module loaded and the
 > problem is in the window; that distinction is most of the debugging.
+>
+> If it says the session is multi-threaded, double-click `Start-PtrUiSetup.cmd`
+> instead — that launcher passes `-STA`, which is what WPF needs. Then point the
+> folder box at the mock folder on your desktop.
 
 ## 2. What the window should show before you touch anything
 
