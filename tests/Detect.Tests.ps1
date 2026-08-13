@@ -248,3 +248,158 @@ Describe 'Finding the game folder' {
         Assert-True ($default -match 'World of Warcraft') "Expected a WoW path, got $default"
     }
 }
+
+Describe 'Client folders Blizzard has added since' {
+    <#
+        The folder table names what has shipped so far, but the game keeps
+        gaining versions — _anniversary_ and _ptr2_ were both sitting in a real
+        install with no way to select them. Blizzard writes .flavor.info into
+        every client folder, so a folder nobody has heard of is still detectable.
+    #>
+
+    function New-ClientFolder {
+        param([string] $Root, [string] $DirName, [string] $Product)
+
+        $path = Join-Path $Root $DirName
+        $null = New-Item -ItemType Directory -Path (Join-Path $path 'WTF') -Force
+        if ($Product) {
+            Set-Content -LiteralPath (Join-Path $path '.flavor.info') -Value @('Product Flavor!STRING:0', $Product)
+        }
+        return $path
+    }
+
+    It 'knows the anniversary and second-PTR folders by name' {
+        foreach ($name in @('_anniversary_', '_ptr2_')) {
+            $flavor = Get-WowFlavor -DirName $name
+            Assert-True ([bool]$flavor) "$name should be a recognised client folder."
+        }
+        Assert-True (-not (Get-WowFlavor -DirName '_anniversary_').IsPtr) 'Anniversary is a live client.'
+        Assert-True (Get-WowFlavor -DirName '_ptr2_').IsPtr 'PTR 2 is a test client.'
+    }
+
+    It 'finds a client folder it has never heard of' {
+        $root = Join-Path $script:TestDrive 'World of Warcraft'
+        $null = New-ClientFolder -Root $root -DirName '_classic_' -Product 'wow_classic'
+        $null = New-ClientFolder -Root $root -DirName '_somethingnew_' -Product 'wow_classic_era'
+
+        $installs = @(Get-WowInstall -Path $root -SkipDefaultLocations)
+        $found = @($installs | Where-Object { $_.DirName -eq '_somethingnew_' })
+        Assert-Equal 1 $found.Count 'A folder with a .flavor.info should be detected.'
+        Assert-Equal 'era' $found[0].Line 'Its line should come from .flavor.info, not the name.'
+        Assert-Equal 'Somethingnew' $found[0].Label
+    }
+
+    It 'believes .flavor.info over the folder name' {
+        # _ptr2_ is listed as retail, but if a machine says otherwise the file wins.
+        $root = Join-Path $script:TestDrive 'World of Warcraft'
+        $null = New-ClientFolder -Root $root -DirName '_ptr2_' -Product 'wow_classic_era'
+
+        $installs = @(Get-WowInstall -Path $root -SkipDefaultLocations)
+        Assert-Equal 1 $installs.Count
+        Assert-Equal 'era' $installs[0].Line
+        Assert-True $installs[0].IsPtr 'It is still a test client.'
+    }
+
+    It 'ignores folders that are not clients' {
+        $root = Join-Path $script:TestDrive 'World of Warcraft'
+        $null = New-ClientFolder -Root $root -DirName '_retail_' -Product 'wow'
+        foreach ($other in @('Data', '.battle.net', 'Utils')) {
+            $null = New-Item -ItemType Directory -Path (Join-Path $root $other) -Force
+        }
+        # Shaped like a client but with nothing to say for itself.
+        $null = New-Item -ItemType Directory -Path (Join-Path $root '_notaclient_') -Force
+
+        $installs = @(Get-WowInstall -Path $root -SkipDefaultLocations)
+        Assert-Equal 1 $installs.Count "Expected only _retail_, got: $(@($installs.DirName) -join ', ')"
+    }
+
+    It 'reads the game line out of a product code' {
+        Assert-Equal 'retail' (Get-WowProductLine -Product 'wow')
+        Assert-Equal 'classic' (Get-WowProductLine -Product 'wow_classic')
+        Assert-Equal 'era' (Get-WowProductLine -Product 'wow_classic_era')
+        Assert-Equal 'anniversary' (Get-WowProductLine -Product 'wow_classic_anniversary')
+        Assert-Equal $null (Get-WowProductLine -Product '')
+    }
+
+    It 'pairs an anniversary client with an anniversary test client' {
+        $root = Join-Path $script:TestDrive 'World of Warcraft'
+        $null = New-ClientFolder -Root $root -DirName '_anniversary_' -Product 'wow_classic_anniversary'
+        $null = New-ClientFolder -Root $root -DirName '_anniversary_ptr_' -Product 'wow_classic_anniversary'
+
+        $pair = Select-WowInstallPair -Install @(Get-WowInstall -Path $root -SkipDefaultLocations)
+        Assert-Equal '_anniversary_' $pair.Source.DirName
+        Assert-Equal '_anniversary_ptr_' $pair.Target.DirName
+    }
+}
+
+Describe 'Noticing changes without being asked' {
+    <#
+        The window polls Get-WowFolderFingerprint so launching the PTR, copying a
+        character or quitting the game are picked up on their own, rather than
+        needing Rescan. Every event it has to notice is checked here.
+    #>
+
+    function New-WatchedContext {
+        param([string] $Root)
+        $wow = New-FakeWowRoot -Parent $Root
+        return New-FakeContext -Root $wow
+    }
+
+    It 'is stable when nothing happens' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $first = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false
+        Start-Sleep -Milliseconds 30
+        Assert-Equal $first (Get-WowFolderFingerprint -Context $context -IncludeProcesses $false) `
+            'Reading it twice with nothing happening must give the same answer, or the window would refresh forever.'
+    }
+
+    It 'notices a character copied onto the PTR' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $before = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false
+
+        $realm = Join-Path (Join-Path $context.Target.AccountRoot $context.TargetAccount) 'PTR Whitemane'
+        $null = New-Item -ItemType Directory -Path (Join-Path $realm 'Newcomer') -Force
+
+        Assert-True ($before -ne (Get-WowFolderFingerprint -Context $context -IncludeProcesses $false)) `
+            'A new character folder should be noticed.'
+    }
+
+    It 'notices an addon appearing on the live client' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $before = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false
+        $null = New-Item -ItemType Directory -Path (Join-Path $context.Source.AddOns 'BrandNewAddon') -Force
+        Assert-True ($before -ne (Get-WowFolderFingerprint -Context $context -IncludeProcesses $false))
+    }
+
+    It 'notices a PTR client being launched for the first time' {
+        $wow = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $wow
+        Remove-Item -LiteralPath $context.Target.Wtf -Recurse -Force
+        $before = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false
+
+        $null = New-Item -ItemType Directory -Path $context.Target.Wtf -Force
+        Assert-True ($before -ne (Get-WowFolderFingerprint -Context $context -IncludeProcesses $false)) `
+            'A WTF folder appearing is what "the PTR has been launched" looks like.'
+    }
+
+    It 'notices a new realm folder' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $before = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false
+        $null = New-Item -ItemType Directory -Path (Join-Path (Join-Path $context.Target.AccountRoot $context.TargetAccount) 'Another Realm') -Force
+        Assert-True ($before -ne (Get-WowFolderFingerprint -Context $context -IncludeProcesses $false))
+    }
+
+    It 'survives a context with nothing selected' {
+        $empty = New-PtrSetupContext
+        $null = Get-WowFolderFingerprint -Context $empty -IncludeProcesses $false
+    }
+
+    It 'costs little enough to run on a timer' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        foreach ($i in 1..20) { $null = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false }
+        $watch.Stop()
+        $each = $watch.ElapsedMilliseconds / 20
+        Assert-True ($each -lt 100) "A single look took $each ms, which is too much to do every few seconds."
+    }
+}

@@ -24,9 +24,9 @@ function Get-SwitchParameterName {
                 param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
             }, $true)) {
 
-        $parameters = if ($function.Parameters) { $function.Parameters }
-        elseif ($function.Body.ParamBlock) { $function.Body.ParamBlock.Parameters }
-        else { @() }
+        if ($function.Parameters) { $parameters = @($function.Parameters) }
+        elseif ($function.Body.ParamBlock) { $parameters = @($function.Body.ParamBlock.Parameters) }
+        else { $parameters = @() }
 
         $switches = foreach ($parameter in $parameters) {
             if ($parameter.StaticType -eq [System.Management.Automation.SwitchParameter]) {
@@ -38,12 +38,75 @@ function Get-SwitchParameterName {
     return $map
 }
 
+Describe 'Assignments that quietly change shape' {
+
+    It 'never takes an array out of an if or a switch used as an expression' {
+        # $x = if (...) { @(...) } has its output unrolled: a one-item array
+        # comes back as the bare item and an empty one as $null. Under
+        # Set-StrictMode, .Count on either is a terminating error, so a step with
+        # exactly one file to copy failed and the window reported nothing but
+        # "the property 'Count' cannot be found". Assign in each branch instead.
+        $offences = [System.Collections.Generic.List[string]]::new()
+
+        foreach ($file in (Get-PowerShellFile)) {
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$null)
+
+            foreach ($assignment in $ast.FindAll({
+                        param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst]
+                    }, $true)) {
+
+                $right = $assignment.Right
+                # foreach used as an expression is idiomatic and its result is
+                # wrapped where it is used; the trap is a branch that went to the
+                # trouble of writing @( ), which says the author wanted an array
+                # and will be surprised not to have one.
+                $isStatement = $right -is [System.Management.Automation.Language.IfStatementAst] -or
+                $right -is [System.Management.Automation.Language.SwitchStatementAst]
+                if (-not $isStatement) { continue }
+
+                # What the branch actually hands back, not whatever @( ) happens to
+                # appear inside it: "{ @($x).Count }" returns a number and is fine.
+                $bodies = [System.Collections.Generic.List[psobject]]::new()
+                foreach ($clause in $right.Clauses) { $bodies.Add($clause.Item2) }
+                if ($right.ElseClause) { $bodies.Add($right.ElseClause) }
+
+                $yieldsArray = $false
+                foreach ($body in $bodies) {
+                    $statements = @($body.Statements)
+                    if (-not $statements.Count) { continue }
+                    $last = $statements[-1]
+                    if ($last -isnot [System.Management.Automation.Language.PipelineAst]) { continue }
+                    $elements = @($last.PipelineElements)
+                    if ($elements.Count -ne 1) { continue }
+                    if ($elements[0] -isnot [System.Management.Automation.Language.CommandExpressionAst]) { continue }
+                    if ($elements[0].Expression -is [System.Management.Automation.Language.ArrayExpressionAst]) {
+                        $yieldsArray = $true
+                        break
+                    }
+                }
+                if (-not $yieldsArray) { continue }
+
+                $offences.Add(("{0}:{1} — {2}" -f $file.Name, $assignment.Extent.StartLineNumber,
+                        ($assignment.Extent.Text -split "`n")[0].Trim()))
+            }
+        }
+
+        Assert-Equal 0 $offences.Count ("An array is being taken out of a statement used as an expression, " +
+            "which unrolls it — a single item stops being an array:`n  " + ($offences -join "`n  "))
+    }
+}
+
 Describe 'Calls into our own functions' {
 
     It 'calls something that exists' {
         # A mistyped function name is a runtime error, and most of the window
         # never runs anywhere the suite can reach it.
         $offences = [System.Collections.Generic.List[string]]::new()
+
+        # Commands that may or may not be installed. Each one is used behind a
+        # check that it exists, so it cannot be resolved here and must not be
+        # reported as a typo.
+        $optional = @('Invoke-ScriptAnalyzer')
 
         # Gathered across every file first: the window's functions are called from
         # the tests that lift them out of it, and the module's from everywhere.
@@ -69,6 +132,7 @@ Describe 'Calls into our own functions' {
                 # A name built from a variable cannot be checked from here.
                 if (-not $name -or $name -match '[$]') { continue }
                 if ($defined.Contains($name)) { continue }
+                if ($optional -contains $name) { continue }
                 if (Get-Command -Name $name -ErrorAction SilentlyContinue) { continue }
 
                 $offences.Add(("{0}:{1} — nothing called {2}" -f $file.Name, $command.Extent.StartLineNumber, $name))

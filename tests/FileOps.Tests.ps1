@@ -376,3 +376,38 @@ Describe 'Hand-built actions' {
         }
     }
 }
+
+Describe 'What the byte totals mean' {
+
+    It 'adds up to exactly the bytes that will be written' {
+        # The number beside a step should match what the source folder weighs in
+        # a file manager. Both use 1024-based units, so they are comparable.
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content ('x' * 100)
+        $null = New-TestFile -Path (Join-Path $source 'sub/b.lua') -Content ('y' * 250)
+        # Something on the destination that is not in the source, so pruning has
+        # a file to remove.
+        $null = New-TestFile -Path (Join-Path $dest 'stale.lua') -Content ('z' * 9999)
+
+        $onDisk = [long]((Get-ChildItem -LiteralPath $source -Recurse -File | Measure-Object -Property Length -Sum).Sum)
+        $plan = @(New-TreeCopyPlan -Source $source -Destination $dest -Prune)
+
+        $written = @($plan | Where-Object { $_.Kind -in @('create', 'overwrite') })
+        $writtenBytes = [long](($written | Measure-Object -Property Size -Sum).Sum)
+        Assert-Equal $onDisk $writtenBytes 'The bytes planned should equal the bytes on disk.'
+
+        # The file being removed must not inflate that: it is not being copied.
+        $everything = [long](($plan | Where-Object { $_.Kind -ne 'skip' } | Measure-Object -Property Size -Sum).Sum)
+        Assert-True ($everything -gt $writtenBytes) 'The fixture should include a delete with a size on it.'
+    }
+
+    It 'reads bytes the way a file manager does' {
+        Assert-Equal '0 B' (Format-ByteSize 0)
+        Assert-Equal '999 B' (Format-ByteSize 999)
+        Assert-Equal '1.0 KB' (Format-ByteSize 1024)
+        Assert-Equal '1.5 KB' (Format-ByteSize 1536)
+        Assert-Equal '1.0 MB' (Format-ByteSize 1048576)
+        Assert-Equal '1.0 GB' (Format-ByteSize 1073741824)
+    }
+}

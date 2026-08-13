@@ -454,3 +454,64 @@ Describe 'A context with holes in it' {
         (Get-PtrSetupStepBlocker -Step (Get-PtrSetupStep -Id 'copy_character_data') -Context $context)
     }
 }
+
+Describe 'A plan with exactly one file in it' {
+    <#
+        A statement used as an expression has its output unrolled, so
+        "$x = if (...) { @($Action) }" hands back the bare item for a one-item
+        plan and $null for an empty one. Under Set-StrictMode, .Count on either
+        is a terminating error — so every step with a single file to copy threw,
+        and the window reported it as "The property 'Count' cannot be found".
+    #>
+
+    It 'reports one file, not an error' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $step = Get-PtrSetupStep -Id 'copy_addons'
+
+        $single = @(New-FileAction -Kind 'create' -Source 'a.lua' -Destination (Join-Path $root 'a.lua') -Size 10)
+        Assert-Equal 1 $single.Count
+
+        $status = Get-PtrSetupStepStatus -Step $step -Context $context -Action $single
+        Assert-Equal 'ready' $status.State
+        Assert-Equal '1 file(s) to copy.' $status.Detail
+    }
+
+    It 'handles every plan size the same way' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $step = Get-PtrSetupStep -Id 'copy_addons'
+
+        foreach ($size in 0, 1, 2, 5) {
+            # 1..0 counts down and yields two elements, so an empty plan is built
+            # explicitly rather than from a range.
+            $plan = @(if ($size -gt 0) {
+                    1..$size | ForEach-Object {
+                        New-FileAction -Kind 'create' -Source "s$_" -Destination (Join-Path $root "f$_") -Size 1
+                    }
+                })
+            Assert-Equal $size $plan.Count "Test fixture built the wrong number of actions."
+
+            $status = Get-PtrSetupStepStatus -Step $step -Context $context -Action $plan
+            if ($size -eq 0) {
+                Assert-Equal 'done' $status.State
+            }
+            else {
+                Assert-Equal 'ready' $status.State "A $size-file plan should be ready."
+                Assert-Equal "$size file(s) to copy." $status.Detail
+            }
+        }
+    }
+
+    It 'is the same through a real Config.wtf step, which is always one file' {
+        # copy_config_wtf plans exactly one action, so it hit this every time.
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $step = Get-PtrSetupStep -Id 'copy_config_wtf'
+        $plan = @(New-PtrSetupStepPlan -Step $step -Context $context)
+        Assert-Equal 1 $plan.Count
+
+        $status = Get-PtrSetupStepStatus -Step $step -Context $context -Action $plan
+        Assert-Equal 'ready' $status.State
+    }
+}

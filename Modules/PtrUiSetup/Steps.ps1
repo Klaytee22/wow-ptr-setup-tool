@@ -465,11 +465,16 @@ function Get-PtrSetupStepStatus {
     $blocker = Get-PtrSetupStepBlocker -Step $Step -Context $Context
     if ($blocker) { return New-PtrSetupStepStatus -State 'blocked' -Detail $blocker }
 
-    $actions = if ($PSBoundParameters.ContainsKey('Action')) {
-        @($Action)
+    # Assigned in each branch rather than from the if itself. A statement used as
+    # an expression has its output unrolled: a one-item plan comes back as the
+    # bare item and an empty one as $null, and .Count on either is a terminating
+    # error under Set-StrictMode. Every step with exactly one file to copy failed
+    # that way, which was most of them.
+    if ($PSBoundParameters.ContainsKey('Action')) {
+        $actions = @($Action)
     }
     else {
-        @(New-PtrSetupStepPlan -Step $Step -Context $Context)
+        $actions = @(New-PtrSetupStepPlan -Step $Step -Context $Context)
     }
     if (-not $actions) { return New-PtrSetupStepStatus -State 'done' -Detail 'Already up to date — nothing left to copy.' }
     if (-not ($actions | Where-Object { $_.Kind -ne 'skip' })) {

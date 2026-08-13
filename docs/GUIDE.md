@@ -1,4 +1,4 @@
-# The source guide
+﻿# The source guide
 
 This tool automates a written procedure. That procedure lives here, so the step list in
 `Modules/PtrUiSetup/Steps.ps1` can be checked against it rather than against someone's
@@ -163,25 +163,16 @@ elevated session, which matters when WoW lives under `Program Files`.
 
 ## Client folder names
 
-The guide says `classic` and `classic_ptr`; on disk those are `_classic_` and
-`_classic_ptr_`. The tool recognises the whole family, and pairs a live client with the
-PTR client on the same `line` automatically.
+`Detect.ps1` names the client folders Blizzard has shipped so far and gives them tidy
+labels, but the list is not the authority. Every client folder carries a `.flavor.info`
+holding its product code (`wow`, `wow_classic`, `wow_classic_era`, …), and that is what
+decides which line of the game a folder belongs to. A folder the table has never heard
+of — `_anniversary_` and `_ptr2_` were both sitting in a real install with no way to
+select them — is still detected as long as it is shaped like a client folder and carries
+that file.
 
-| Folder | Label | Line | PTR? |
-|--------|-------|------|------|
-| `_retail_` | Retail | retail | no |
-| `_ptr_` | Retail PTR | retail | yes |
-| `_xptr_` | Retail PTR 2 | retail | yes |
-| `_beta_` | Retail Beta | retail | yes |
-| `_classic_` | Classic | classic | no |
-| `_classic_ptr_` | Classic PTR | classic | yes |
-| `_classic_beta_` | Classic Beta | classic | yes |
-| `_classic_era_` | Classic Era | era | no |
-| `_classic_era_ptr_` | Classic Era PTR | era | yes |
-| `_classic_era_beta_` | Classic Era Beta | era | yes |
-
-Blizzard adds folders over time; new ones go in `$script:WowFlavors` in
-`Modules/PtrUiSetup/Detect.ps1` and need no other change.
+So a version added after this was written turns up in the dropdowns on its own, paired
+with the right counterpart, without an update here.
 
 ## If the guide changes
 

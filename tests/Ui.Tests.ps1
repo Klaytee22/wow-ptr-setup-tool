@@ -654,3 +654,57 @@ Describe 'The planning queue' {
         Assert-True ($ui.ResultsBox.Lines -notmatch '\[fail\]') "The planner reported: $($ui.ResultsBox.Lines)"
     }
 }
+
+Describe 'Watching the folders' {
+    <#
+        Launching the PTR, copying a character and quitting the game all used to
+        need a press of Rescan. The window polls a cheap fingerprint instead, so
+        the button is a fallback rather than the way the tool is used.
+    #>
+
+    It 'starts watching once the first scan is done' {
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -match 'Start-Watching') 'The window should start watching.'
+        Assert-True ($text -match 'Get-WowFolderFingerprint') 'It should be watching by fingerprint, not by rescanning.'
+    }
+
+    It 'holds off while a run or a plan is under way' {
+        # Refreshing on top of a copy, or restarting planning every few seconds,
+        # would be worse than not watching at all.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $onChange = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-OnChange'
+                }, $true))
+        Assert-Equal 1 $onChange.Count
+        $body = $onChange[0].Body.Extent.Text
+        Assert-True ($body -match '\$script:Running') 'It must not refresh during an Apply.'
+        Assert-True ($body -match '\$script:PlanJob') 'It must not refresh on top of planning already going.'
+        Assert-True ($body -match '\$now -eq \$script:Fingerprint') 'It must only act when something actually changed.'
+    }
+
+    It 'does not redo a mapping the user arranged themselves' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $update = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Update-CharacterPanelIfChanged'
+                }, $true))
+        Assert-Equal 1 $update.Count
+        Assert-True ($update[0].Body.Extent.Text -match '\$script:MappingTouched') `
+            'A character copied later should not undo choices already made.'
+
+        $sync = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Sync-CharacterMap'
+                }, $true))
+        Assert-True ($sync[0].Body.Extent.Text -match '\$script:MappingTouched = \$true') `
+            'Editing the mapping is what marks it as the user''s.'
+    }
+
+    It 'tells the user it is watching, and keeps Rescan for when it is not enough' {
+        $defined = Get-XamlName -Path $xamlPath
+        Assert-True ($defined -contains 'WatchStatus') 'The window should say that it is watching.'
+        Assert-True ($defined -contains 'RescanButton') 'Rescan stays, as the way to re-read everything.'
+    }
+}

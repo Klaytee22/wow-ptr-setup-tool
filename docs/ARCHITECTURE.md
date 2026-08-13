@@ -149,6 +149,15 @@ a millisecond, which is nothing once and was about half the cost of planning a r
 `AddOns` folder. `New-FileAction` remains the way to make one anywhere that is not that
 loop, and a test holds the two shapes together property by property.
 
+## Statements used as expressions
+
+`$x = if (...) { @($y) }` does not do what it looks like. A statement used as an
+expression has its output unrolled, so a one-item array comes back as the bare item and
+an empty one as `$null`. Combined with strict mode, where `.Count` on either is a
+terminating error, every step with exactly one file to copy threw — and the window could
+only report *the property 'Count' cannot be found*, with no hint where. Assign inside
+each branch instead. `Syntax.Tests.ps1` fails the build on the pattern.
+
 ## Strict mode and empty collections
 
 The module runs under `Set-StrictMode -Version Latest`, where `.Count` on `$null` is a
@@ -210,6 +219,24 @@ breaks on is the one the double-click launcher uses.
 
 CI runs the suite under both editions so a regression here shows up as a red build
 rather than a user's crash.
+
+## Noticing changes
+
+The window polls `Get-WowFolderFingerprint` every few seconds: a fixed handful of
+directory timestamps and one process lookup, about five milliseconds. A directory's own
+timestamp moves when an entry is added or removed inside it, which covers every event
+worth noticing — the PTR growing a `WTF` folder, a character appearing under a realm, an
+addon installed, the game quitting.
+
+A `FileSystemWatcher` is the other way to do this and is worse here: its events arrive on
+a thread that must not touch WPF, and WoW rewriting its whole `WTF` tree on exit delivers
+them by the hundred. A timer that looks costs less and cannot surprise anyone.
+
+The refresh is deliberately narrower than *Rescan now*: the installs and the folder box
+stay as they are, so a refresh cannot move the selection under someone mid-decision. It
+holds off entirely while a run is in progress or planning is already going, and a
+character mapping the user arranged themselves is never re-guessed — `$script:Mapping
+Touched` records that they have taken it over.
 
 ## Testing
 

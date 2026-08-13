@@ -79,6 +79,10 @@ browser, no network access at any point.
 The window opens with a folder box, so there is nothing to configure and no flag to
 pass:
 
+- **It watches.** Launching the PTR, copying a character, installing an addon or
+  quitting the game are all noticed within a few seconds — *Rescan now* is there for
+  when you want everything re-read from scratch, not for ordinary use. The check is
+  about twenty directory timestamps and one process lookup, a few times a minute.
 - **It remembers.** The folder you settle on is saved to
   `%LOCALAPPDATA%\PtrUiSetup\settings.json`, so the next launch opens on it.
 - **Otherwise it detects.** Blizzard records the install path in the registry, which is
@@ -92,6 +96,13 @@ pass:
 **Browse** picks a folder, **Detect** re-runs the search, and typing a path and pressing
 Enter works too. Either the folder your install is in or a client folder inside it is
 fine, since people paste whichever one Explorer happens to be showing.
+
+Every client folder in there is offered: `_retail_`, `_classic_`, `_classic_era_`,
+`_anniversary_`, `_ptr_`, `_ptr2_`, the betas, and any Blizzard adds later. A folder the
+tool has never heard of is still recognised by the `.flavor.info` file every client
+carries, which is also what says which line of the game it belongs to — so the pairing
+and the "those are different versions" warning stay right without waiting on an update
+here.
 
 ## Safety
 
@@ -132,7 +143,7 @@ Modules/PtrUiSetup/
   Session.ps1                 first-guess selection and keeping it consistent
   Settings.ps1                remembers the folder you picked
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        175 tests, no game install and no Pester required
+tests/                        198 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -181,9 +192,14 @@ each of its entries.
 ## Development
 
 ```powershell
-./tests/Invoke-Tests.ps1                       # all 175
+./tools/Invoke-Gate.ps1                        # everything that has to pass
+./tests/Invoke-Tests.ps1                       # all 198
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
+
+`Invoke-Gate.ps1` is the one to run before pushing: it parses every file, checks the
+encoding, runs the suite, and runs PSScriptAnalyzer if it is installed. CI runs the same
+script on PowerShell 7 and on Windows PowerShell 5.1.
 
 **Unit tests** (`Detect`, `ConfigWtf`, `Encoding`, `FileOps`, `Settings`, `Steps`, `Syntax`,
 `Ui`) cover one function at a time against small fixtures. **Integration tests** (`Integration.Tests.ps1`) build the
@@ -212,7 +228,7 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 175 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 198 passing tests, including an end-to-end pass over a realistic mock install.
 
 The window itself **has still not been opened on a real Windows machine**: WPF cannot run
 where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it

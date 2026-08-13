@@ -22,7 +22,112 @@ $script:WowFlavors = @(
     [pscustomobject]@{ DirName = '_classic_era_';      Label = 'Classic Era';     Line = 'era';     IsPtr = $false }
     [pscustomobject]@{ DirName = '_classic_era_ptr_';  Label = 'Classic Era PTR'; Line = 'era';     IsPtr = $true  }
     [pscustomobject]@{ DirName = '_classic_era_beta_'; Label = 'Classic Era Beta';Line = 'era';     IsPtr = $true  }
+    [pscustomobject]@{ DirName = '_anniversary_';      Label = 'Anniversary';     Line = 'anniversary'; IsPtr = $false }
+    [pscustomobject]@{ DirName = '_anniversary_ptr_';  Label = 'Anniversary PTR'; Line = 'anniversary'; IsPtr = $true  }
+    [pscustomobject]@{ DirName = '_ptr2_';             Label = 'PTR 2';           Line = 'retail';  IsPtr = $true  }
 )
+
+# A client folder is _something_ — Data, .battle.net and the rest are not.
+$script:WowClientFolderPattern = '^_[A-Za-z0-9]+(_[A-Za-z0-9]+)*_$'
+
+# Blizzard drops this in every client folder. Two lines: a header, then the
+# product. It is the only authority on which game line a folder belongs to.
+$script:WowFlavorInfoName = '.flavor.info'
+
+function Get-WowProductLine {
+    <#
+    .SYNOPSIS
+        Which line of the game a Blizzard product code belongs to.
+    #>
+    [CmdletBinding()]
+    param([string] $Product)
+
+    if (-not $Product) { return $null }
+    $name = $Product.ToLowerInvariant()
+    if ($name -match 'classic_era|classicera') { return 'era' }
+    if ($name -match 'anniversary') { return 'anniversary' }
+    if ($name -match 'classic') { return 'classic' }
+    return 'retail'
+}
+
+function Get-WowFlavorInfo {
+    <#
+    .SYNOPSIS
+        The product code a client folder declares, or $null.
+
+    .DESCRIPTION
+        .flavor.info holds a header line and then the product — wow,
+        wow_classic_era and friends. Reading it beats guessing from the folder
+        name, which is how a folder nobody has heard of yet still lands on the
+        right game line.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $file = Join-Path $Path $script:WowFlavorInfoName
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return $null }
+    try {
+        $lines = @(Get-Content -LiteralPath $file -ErrorAction Stop | Where-Object { $_.Trim() })
+    }
+    catch {
+        return $null
+    }
+    if ($lines.Count -lt 2) { return $null }
+    return $lines[1].Trim()
+}
+
+function Get-WowClientFlavor {
+    <#
+    .SYNOPSIS
+        The flavor of an actual client folder on disk, known name or not.
+
+    .DESCRIPTION
+        The table above names the folders Blizzard has shipped so far and gives
+        them tidy labels. Anything else matching the _name_ shape is still a
+        client if it carries a .flavor.info, so a version added after this was
+        written turns up in the dropdowns without a code change — which is how
+        _anniversary_ and _ptr2_ would have appeared on their own.
+
+        Where both exist, .flavor.info wins on which line the folder belongs to,
+        because the folder name is a convention and the file is a fact.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $dirName = Split-Path -Path $Path -Leaf
+    $known = Get-WowFlavor -DirName $dirName
+    $product = Get-WowFlavorInfo -Path $Path
+
+    if (-not $known) {
+        if ($dirName -notmatch $script:WowClientFolderPattern) { return $null }
+        # An unrecognised folder has to prove it is a client.
+        if (-not $product) { return $null }
+
+        $words = ($dirName.Trim('_') -split '_' | Where-Object { $_ } | ForEach-Object {
+                if ($_.Length -le 3 -and $_ -match '^[a-z]+[0-9]*$') { $_.ToUpperInvariant() }
+                else { $_.Substring(0, 1).ToUpperInvariant() + $_.Substring(1) }
+            }) -join ' '
+
+        return [pscustomobject]@{
+            DirName = $dirName
+            Label   = $words
+            Line    = (Get-WowProductLine -Product $product)
+            # Test clients are named for what they are.
+            IsPtr   = [bool]($dirName -match 'ptr|beta|alpha|test')
+        }
+    }
+
+    $line = Get-WowProductLine -Product $product
+    if (-not $line -or $line -eq $known.Line) { return $known }
+
+    # The folder is known but says it is something else — believe the file.
+    return [pscustomobject]@{
+        DirName = $known.DirName
+        Label   = $known.Label
+        Line    = $line
+        IsPtr   = $known.IsPtr
+    }
+}
 
 function Get-WowFlavor {
     <#
@@ -300,7 +405,7 @@ function Get-WowInstall {
         if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
 
         # The path may itself be a client folder; scan its parent as well.
-        $leafFlavor = Get-WowFlavor -DirName (Split-Path -Path $root -Leaf)
+        $leafFlavor = Get-WowClientFlavor -Path $root
         if ($leafFlavor) {
             $install = New-WowInstall -Path $root -Flavor $leafFlavor
             if (-not $found.Contains($install.Id)) { $found[$install.Id] = $install }
@@ -308,7 +413,7 @@ function Get-WowInstall {
         }
 
         foreach ($child in (Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
-            $flavor = Get-WowFlavor -DirName $child.Name
+            $flavor = Get-WowClientFlavor -Path $child.FullName
             if (-not $flavor) { continue }
             $install = New-WowInstall -Path $child.FullName -Flavor $flavor
             if (-not $found.Contains($install.Id)) { $found[$install.Id] = $install }
@@ -368,7 +473,93 @@ function Get-RunningWowProcess {
     [CmdletBinding()]
     param()
 
-    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'Wow*' })
+    # Filtered by the API rather than by enumerating every process and sifting:
+    # this is polled on a timer, and it is the only part of the watch that is not
+    # already free.
+    return @(Get-Process -Name 'Wow*' -ErrorAction SilentlyContinue)
+}
+
+function Get-WowFolderFingerprint {
+    <#
+    .SYNOPSIS
+        A short string that changes when something the window cares about does.
+
+    .DESCRIPTION
+        Lets the window notice a PTR client being launched, a character being
+        copied, an addon being installed or the game being quit, without the user
+        pressing Rescan and without watching the filesystem.
+
+        Only a fixed handful of directories, never recursively: a directory's own
+        timestamp moves when an entry is added or removed inside it, which covers
+        every one of those events. Roughly twenty stat calls and one process
+        lookup, so it costs about five milliseconds and can be run on a timer
+        without anyone noticing.
+
+    .PARAMETER IncludeProcesses
+        Fold in whether the game is running. Off makes the result depend on
+        nothing but the filesystem, which is what the tests want.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [psobject] $Context,
+        [bool] $IncludeProcesses = $true
+    )
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+
+    function Add-Stamp {
+        param([System.Collections.Generic.List[string]] $Into, [string] $Path)
+        if (-not $Path) { return }
+        try {
+            if ([System.IO.Directory]::Exists($Path)) {
+                $Into.Add("$Path|$([System.IO.Directory]::GetLastWriteTimeUtc($Path).Ticks)")
+            }
+            elseif ([System.IO.File]::Exists($Path)) {
+                $Into.Add("$Path|$([System.IO.File]::GetLastWriteTimeUtc($Path).Ticks)")
+            }
+            else {
+                $Into.Add("$Path|-")
+            }
+        }
+        catch {
+            # An unreadable path is a fact about the folder like any other.
+            $Into.Add("$Path|?")
+        }
+    }
+
+    foreach ($side in @('Source', 'Target')) {
+        $install = $Context.$side
+        if (-not $install) {
+            $parts.Add("$side|none")
+            continue
+        }
+        $parts.Add("$side|$($install.Path)")
+        foreach ($path in @($install.Root, $install.Path, $install.AddOns, $install.Wtf, $install.AccountRoot, $install.ConfigWtf)) {
+            Add-Stamp -Into $parts -Path $path
+        }
+
+        # The account being used, and the realms under it, so a character copied
+        # onto the PTR shows up without a rescan.
+        $account = if ($side -eq 'Source') { $Context.SourceAccount } else { $Context.TargetAccount }
+        if (-not $account) { continue }
+        $accountDir = Join-Path $install.AccountRoot $account
+        Add-Stamp -Into $parts -Path $accountDir
+        try {
+            foreach ($realm in ([System.IO.Directory]::GetDirectories($accountDir) | Sort-Object)) {
+                Add-Stamp -Into $parts -Path $realm
+            }
+        }
+        catch {
+            # No account folder yet is itself already recorded above.
+        }
+    }
+
+    if ($IncludeProcesses) {
+        $running = @(Get-RunningWowProcess)
+        $parts.Add("running|$(@($running.Name | Sort-Object -Unique) -join ',')")
+    }
+
+    return ($parts -join "`n")
 }
 
 function Get-WowAccount {

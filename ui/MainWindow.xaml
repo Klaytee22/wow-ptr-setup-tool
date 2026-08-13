@@ -122,8 +122,12 @@
                     <TextBlock Text="WoW PTR UI Setup" FontSize="17" FontWeight="SemiBold" />
                     <TextBlock Style="{StaticResource Hint}" Text="Copy your live UI, addons and settings onto the test client." />
                 </StackPanel>
-                <Button Grid.Column="2" x:Name="RescanButton" Content="Rescan" VerticalAlignment="Center"
-                        ToolTip="Re-read the folders — use this after launching the PTR or copying a character" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock x:Name="WatchStatus" Style="{StaticResource Hint}" VerticalAlignment="Center"
+                               Margin="0,0,10,0" Text="Watching for changes" />
+                    <Button x:Name="RescanButton" Content="Rescan now" Padding="16,8" FontSize="14"
+                            ToolTip="The folders are watched automatically. This re-reads everything from scratch." />
+                </StackPanel>
             </Grid>
         </Border>
 

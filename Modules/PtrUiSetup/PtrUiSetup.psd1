@@ -7,6 +7,9 @@
     PowerShellVersion = '5.1'
     FunctionsToExport = @(
         'Get-WowFlavor'
+        'Get-WowClientFlavor'
+        'Get-WowFlavorInfo'
+        'Get-WowProductLine'
         'Get-WowInstall'
         'Get-WowRootCandidate'
         'Find-WowFolder'
@@ -18,6 +21,7 @@
         'Select-WowInstallPair'
         'Get-WowAccount'
         'Get-RunningWowProcess'
+        'Get-WowFolderFingerprint'
         'Get-WowRealm'
         'Get-WowCharacter'
         'Get-WowCharacterPath'

@@ -18,9 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test (PowerShell 7)
+      - name: Gate (PowerShell 7)
         shell: pwsh
-        run: ./tests/Invoke-Tests.ps1
+        run: ./tools/Invoke-Gate.ps1
 
   test-windows-powershell:
     # The double-click launcher runs Windows PowerShell 5.1, which is a
@@ -29,9 +29,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test (Windows PowerShell 5.1)
+      - name: Gate (Windows PowerShell 5.1)
         shell: powershell
-        run: ./tests/Invoke-Tests.ps1
+        run: ./tools/Invoke-Gate.ps1
 
   lint:
     runs-on: windows-latest
@@ -44,10 +44,4 @@ jobs:
 
       - name: Analyze
         shell: pwsh
-        run: |
-          $found = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Error
-          if ($found) {
-            $found | Format-Table -AutoSize
-            throw "PSScriptAnalyzer reported $($found.Count) error(s)."
-          }
-          Write-Host 'No errors.'
+        run: ./tools/Invoke-Gate.ps1

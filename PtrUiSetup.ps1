@@ -114,6 +114,12 @@ $script:PlanDone = 0
 $script:RunIndex = 0
 $script:RunTotal = 0
 $script:AsyncBroken = $false
+# Watching the folders, so pressing Rescan is a fallback rather than the way to
+# use the tool.
+$script:WatchTimer = $null
+$script:Fingerprint = $null
+$script:MappingTouched = $false
+$script:Running = $false
 # Workers told to stop, kept until they have and can be disposed.
 $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
 
@@ -276,6 +282,89 @@ function Reset-Plan {
         return
     }
     $script:Plans = @{}
+}
+
+function Start-Watching {
+    <#
+    .SYNOPSIS
+        Notice on our own when the folders change, instead of waiting to be told.
+
+    .DESCRIPTION
+        Launching the PTR, copying a character, installing an addon and quitting
+        the game all change something the window is showing, and every one of
+        them used to need a press of Rescan. Get-WowFolderFingerprint is about
+        twenty directory timestamps and one process lookup — five milliseconds,
+        a few times a minute — so this can simply run.
+
+        A filesystem watcher would be the other way to do it, but its events
+        arrive on a thread that must not touch WPF, and WoW rewriting its whole
+        WTF tree on exit would deliver them by the hundred. A timer that looks
+        costs less and cannot surprise anyone.
+    #>
+    if ($script:WatchTimer) { return }
+
+    $script:WatchTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:WatchTimer.Interval = [TimeSpan]::FromSeconds(4)
+    $script:WatchTimer.Add_Tick({ Invoke-Guarded { Update-OnChange } })
+    $script:WatchTimer.Start()
+    $ui.WatchStatus.Text = 'Watching for changes'
+}
+
+function Update-OnChange {
+    <#
+    .SYNOPSIS
+        Refresh if, and only if, something on disk actually moved.
+    #>
+    if (-not $script:Context) { return }
+    # Not while a run is under way, and not on top of planning already going.
+    if ($script:Running -or $script:PlanJob -or ($script:PlanQueue -and $script:PlanQueue.Count)) { return }
+
+    $now = Get-WowFolderFingerprint -Context $script:Context
+    if ($now -eq $script:Fingerprint) { return }
+    $script:Fingerprint = $now
+
+    # Deliberately narrower than Rescan: the installs and the folder box stay as
+    # they are, so a refresh cannot move the selection under someone mid-decision.
+    $before = @(Get-CharacterId)
+    Reset-Plan
+    Update-CharacterPanelIfChanged -Before $before
+    Update-Steps
+    Update-Summary
+    Update-Backups
+    Write-Result '[auto] Something changed on disk — refreshed.'
+}
+
+function Get-CharacterId {
+    <#
+    .SYNOPSIS
+        The characters currently on both clients, as ids, for spotting new ones.
+    #>
+    $ids = foreach ($side in @('Source', 'Target')) {
+        $install = $script:Context.$side
+        $account = if ($side -eq 'Source') { $script:Context.SourceAccount } else { $script:Context.TargetAccount }
+        if (-not $install -or -not $account) { continue }
+        foreach ($character in (Get-WowCharacter -Install $install -Account $account)) { "$side/$($character.Id)" }
+    }
+    return @($ids)
+}
+
+function Update-CharacterPanelIfChanged {
+    <#
+    .SYNOPSIS
+        Rebuild the mapping rows only when the characters themselves changed.
+    #>
+    param([AllowEmptyCollection()] [string[]] $Before)
+
+    $after = @(Get-CharacterId)
+    if ((@($Before) -join '|') -eq ($after -join '|')) { return }
+
+    # A character copied to the PTR should appear mapped, unless the user has
+    # already arranged the mapping themselves — then it appears unmapped and they
+    # decide, rather than having their choices redone for them.
+    if (-not $script:MappingTouched) {
+        $script:Context = Set-PtrSetupCharacterGuess -Context $script:Context -Force
+    }
+    Update-CharacterPanel
 }
 
 # --------------------------------------------------------------------------
@@ -736,6 +825,7 @@ function Sync-CharacterMap {
         }
     }
     $script:Context.Character = @($pairs)
+    $script:MappingTouched = $true
     Reset-Plan -Change 'character'
     Update-Steps
     Update-Summary
@@ -957,10 +1047,17 @@ function Set-StepCardState {
     $Card.Slot.Children.Clear()
     if ($Step.Mode -ne 'auto' -or -not $actions.Count) { return }
 
-    $bytes = [long](($changing | Measure-Object -Property Size -Sum).Sum)
+    # Bytes are what will be written, so deletes are counted as files but not as
+    # data: adding the size of a file being removed to "how much will be copied"
+    # makes the total disagree with the folder the user is looking at.
+    $writes = @($changing | Where-Object { $_.Kind -ne 'delete' })
+    $removals = $changing.Count - $writes.Count
+    $bytes = [long](($writes | Measure-Object -Property Size -Sum).Sum)
     $unchanged = $actions.Count - $changing.Count
+
     $expander = New-Object System.Windows.Controls.Expander
-    $expander.Header = "Show the $($changing.Count) file(s) — $(Format-ByteSize $bytes)" +
+    $expander.Header = "Show the $($writes.Count) file(s) — $(Format-ByteSize $bytes)" +
+        $(if ($removals) { " · $removals to remove" } else { '' }) +
         $(if ($unchanged) { " · $unchanged already on the PTR" } else { '' })
     $expander.Foreground = Get-Brush '#F0C674'
     $expander.FontSize = 12
@@ -1019,7 +1116,9 @@ function Update-Summary {
         if (-not $script:Plans.ContainsKey($step.Id)) { $waiting = $true; continue }
         $actions = @($script:Plans[$step.Id] | Where-Object { $_.Kind -ne 'skip' })
         $files += $actions.Count
-        $bytes += ([long](($actions | Measure-Object -Property Size -Sum).Sum))
+        # As above: only what gets written counts towards the byte total.
+        $written = @($actions | Where-Object { $_.Kind -ne 'delete' })
+        $bytes += ([long](($written | Measure-Object -Property Size -Sum).Sum))
     }
 
     $ready = Test-ContextReady -Context $script:Context
@@ -1071,6 +1170,10 @@ function Update-Options {
 }
 
 function Update-All {
+    # Anything that gets here has just re-read the folders, so the watch starts
+    # from what is there now rather than reporting the same change again.
+    if ($script:Context) { $script:Fingerprint = Get-WowFolderFingerprint -Context $script:Context }
+
     <#
     .SYNOPSIS
         Redraw everything, from scratch.
@@ -1148,6 +1251,7 @@ function Invoke-Run {
     $ui.ApplyButton.IsEnabled = $false
     $ui.PreviewButton.IsEnabled = $false
     $ui.ProgressBar.Value = 0
+    $script:Running = $true
     Write-Result $(if ($PreviewOnly) { '--- Preview (nothing is written) ---' } else { '--- Applying ---' })
 
     # One bar across the whole run rather than one per step: ticking five steps
@@ -1179,6 +1283,7 @@ function Invoke-Run {
         Write-Result "[fail] $($_.Exception.Message)"
     }
     finally {
+        $script:Running = $false
         $ui.ProgressBar.Value = 0
         Update-All
     }
@@ -1344,12 +1449,14 @@ $window.Add_ContentRendered({
                 $ui.ProgressBar.IsIndeterminate = $false
             }
             Invoke-Rescan
+            Start-Watching
         }
     })
 
 $window.Add_Closed({
         # The worker holds a thread; without this the console lingers after the
         # window has gone.
+        if ($script:WatchTimer) { $script:WatchTimer.Stop() }
         Stop-PlanRequest
         Clear-AbandonedRequest
         if ($script:Worker) {

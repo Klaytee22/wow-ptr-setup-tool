@@ -343,7 +343,9 @@ function Invoke-FileActionPlan {
     }
 
     if ($PreviewOnly -or -not $todo) {
-        $performed = if ($PreviewOnly) { @() } else { $todo }
+        # Assigned in branches: taken out of the if, an empty list comes back as
+        # $null and a one-item list as the bare item.
+        if ($PreviewOnly) { $performed = @() } else { $performed = @($todo) }
         return [pscustomobject]@{ Performed = $performed; BackupPath = $null }
     }
 

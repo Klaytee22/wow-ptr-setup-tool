@@ -23,6 +23,9 @@ foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'Steps.ps1', '
 Export-ModuleMember -Function @(
     # Detect
     'Get-WowFlavor'
+    'Get-WowClientFlavor'
+    'Get-WowFlavorInfo'
+    'Get-WowProductLine'
     'Get-WowInstall'
     'Get-WowRootCandidate'
     'Find-WowFolder'
@@ -34,6 +37,7 @@ Export-ModuleMember -Function @(
     'Select-WowInstallPair'
     'Get-WowAccount'
     'Get-RunningWowProcess'
+    'Get-WowFolderFingerprint'
     'Get-WowRealm'
     'Get-WowCharacter'
     'Get-WowCharacterPath'
