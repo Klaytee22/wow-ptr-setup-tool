@@ -55,12 +55,25 @@ Double-click Start-PtrUiSetup.cmd, or from a prompt:
 '@
 }
 
+# Nothing can be shown on screen until WPF itself is loaded, and loading it is
+# the slowest part of starting up. The console the launcher opened is the only
+# surface there is until then, so it says what is happening — a few seconds of
+# silence after a double-click reads as a machine that has ignored you.
+function Write-Startup {
+    param([string] $Message)
+    Write-Host "  $Message" -ForegroundColor DarkGray
+}
+
+Write-Host ''
+Write-Host '  WoW PTR UI Setup' -ForegroundColor Yellow
+Write-Startup 'loading Windows components...'
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, System.Windows.Forms
 
 # --------------------------------------------------------------------------
 # Window
 # --------------------------------------------------------------------------
 
+Write-Startup 'building the window...'
 $xamlPath = Join-Path $PSScriptRoot 'ui/MainWindow.xaml'
 # Read as UTF-8 explicitly. Get-Content on Windows PowerShell 5.1 falls back to
 # the machine's ANSI code page for a file it cannot prove is Unicode, which turns
@@ -88,6 +101,21 @@ $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
 # AddOns tree, and the status, the file list and the summary all want the same
 # answer, so it is worked out once per refresh and read three times.
 $script:Plans = @{}
+$script:Refreshing = $false
+$script:RefreshAgain = $false
+
+# Which steps have to be re-planned when something changes. Picking a character
+# cannot alter what the addon copy would do, and re-walking a 30,000-file AddOns
+# folder to find that out is the difference between a dropdown that responds and
+# one that appears to hang. Anything not listed here clears the lot.
+$script:Invalidates = @{
+    account               = @('copy_account_saved_variables', 'copy_character_data')
+    character             = @('copy_character_data')
+    ReplaceAddOns         = @('copy_addons')
+    IncludeMacrosBindings = @('copy_account_saved_variables', 'copy_character_data')
+    IncludeChatCache      = @('copy_character_data')
+    AllowOutOfDate        = @('copy_config_wtf', 'allow_out_of_date_addons')
+}
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
 $script:Suppress = $false
@@ -205,6 +233,24 @@ function Invoke-Guarded {
 
     try { & $Body }
     catch { Write-Result "[fail] $($_.Exception.Message)" }
+}
+
+function Reset-Plan {
+    <#
+    .SYNOPSIS
+        Throw away the plans that -Change could have altered, keeping the rest.
+
+    .PARAMETER Change
+        What the user just changed: an option name, 'account', 'character', or
+        anything unrecognised, which clears everything as the safe default.
+    #>
+    param([string] $Change)
+
+    if ($Change -and $script:Invalidates.ContainsKey($Change)) {
+        foreach ($stepId in $script:Invalidates[$Change]) { $script:Plans.Remove($stepId) }
+        return
+    }
+    $script:Plans = @{}
 }
 
 # --------------------------------------------------------------------------
@@ -413,138 +459,270 @@ function Sync-CharacterMap {
         }
     }
     $script:Context.Character = @($pairs)
+    Reset-Plan -Change 'character'
     Update-Steps
     Update-Summary
 }
 
 function Update-Steps {
+    <#
+    .SYNOPSIS
+        Render the step list, filling in the expensive parts as they arrive.
+
+    .DESCRIPTION
+        Every card is on screen before any planning starts, then the plans land
+        one at a time with the window pumping between them. Working a plan out
+        walks the whole AddOns tree, so doing all nine first would lock the
+        window for as long as that takes and the user would be looking at
+        nothing. Cached plans are reused, so most changes fill in instantly.
+    #>
+
+    # Pumping the dispatcher below lets clicks through mid-render. Rather than
+    # blocking them, note that another pass is needed and run it after this one.
+    if ($script:Refreshing) {
+        $script:RefreshAgain = $true
+        return
+    }
+    $script:Refreshing = $true
+    try {
+        do {
+            $script:RefreshAgain = $false
+            Write-StepCard
+        } while ($script:RefreshAgain)
+    }
+    finally {
+        $script:Refreshing = $false
+        $ui.ProgressBar.Value = 0
+    }
+}
+
+function Write-StepCard {
     $ui.StepsPanel.Children.Clear()
 
+    # Pass one: every card on screen straight away. Nothing here touches disk.
+    $cards = [ordered]@{}
     foreach ($step in (Get-PtrSetupStep)) {
-        $actions = @(New-PtrSetupStepPlan -Step $step -Context $script:Context)
+        $card = New-StepCard -Step $step
+        $cards[$step.Id] = $card
+        $null = $ui.StepsPanel.Children.Add($card.Card)
+    }
+    Update-UiNow
+
+    # Pass two: the part that costs something, one step at a time.
+    $total = @(Get-PtrSetupStep).Count
+    $done = 0
+    foreach ($step in (Get-PtrSetupStep)) {
+        $cached = $script:Plans.ContainsKey($step.Id)
+        $actions = if ($cached) { @($script:Plans[$step.Id]) }
+        else { @(New-PtrSetupStepPlan -Step $step -Context $script:Context) }
         $script:Plans[$step.Id] = $actions
+
         $status = Get-PtrSetupStepStatus -Step $step -Context $script:Context -Action $actions
-        # Skips are files already on the PTR. They belong in the list, so you can
-        # see they were considered, but not in the counts of what will change.
-        $changing = @($actions | Where-Object { $_.Kind -ne 'skip' })
-        $bytes = ($changing | Measure-Object -Property Size -Sum).Sum
+        Set-StepCardState -Card $cards[$step.Id] -Step $step -Status $status -Actions $actions
 
-        # First render pre-ticks every automated step that has work to do.
-        if (-not $script:SelectedTouched -and $step.Mode -eq 'auto' -and $status.State -ne 'blocked') {
-            $null = $script:Selected.Add($step.Id)
-        }
-
-        $card = New-Object System.Windows.Controls.Border
-        $card.Background = Get-Brush '#222634'
-        $card.BorderBrush = Get-Brush $(if ($status.State -eq 'done') { '#33613F' } else { '#2F3546' })
-        $card.BorderThickness = New-Object System.Windows.Thickness 1
-        $card.CornerRadius = New-Object System.Windows.CornerRadius 6
-        $card.Padding = New-Object System.Windows.Thickness 12
-        $card.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
-
-        $grid = New-Object System.Windows.Controls.Grid
-        $checkColumn = New-Object System.Windows.Controls.ColumnDefinition
-        $checkColumn.Width = [System.Windows.GridLength]::Auto
-        $null = $grid.ColumnDefinitions.Add($checkColumn)
-        $null = $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
-
-        $check = New-Object System.Windows.Controls.CheckBox
-        $check.Margin = New-Object System.Windows.Thickness 0, 2, 10, 0
-        $check.VerticalAlignment = 'Top'
-        $check.Tag = $step
-        if ($step.Mode -eq 'auto') {
-            $check.IsChecked = $script:Selected.Contains($step.Id)
-            $check.IsEnabled = ($status.State -ne 'blocked')
-            $check.ToolTip = 'Include this step when you press Apply'
-            $check.Add_Click({
-                    param($sender, $e)
-                    Invoke-Guarded {
-                        $stepId = $sender.Tag.Id
-                        if ($sender.IsChecked) { $null = $script:Selected.Add($stepId) } else { $null = $script:Selected.Remove($stepId) }
-                        $script:SelectedTouched = $true
-                        Update-Summary
-                    }
-                })
-        }
-        else {
-            $check.IsChecked = ($status.State -eq 'done')
-            $check.ToolTip = 'Mark this manual step as done'
-            $check.Add_Click({
-                    param($sender, $e)
-                    Invoke-Guarded {
-                        $stepId = $sender.Tag.Id
-                        if ($sender.IsChecked) { $null = $script:Context.Acknowledged.Add($stepId) }
-                        else { $null = $script:Context.Acknowledged.Remove($stepId) }
-                        Update-Steps
-                    }
-                })
-        }
-        $null = $grid.Children.Add($check)
-
-        $body = New-Object System.Windows.Controls.StackPanel
-        [System.Windows.Controls.Grid]::SetColumn($body, 1)
-
-        $titleRow = New-Object System.Windows.Controls.StackPanel
-        $titleRow.Orientation = 'Horizontal'
-        $null = $titleRow.Children.Add((New-TextBlockControl -Text $step.Title -Weight 'SemiBold'))
-        $pillKind = if ($step.Mode -eq 'manual') { 'manual' } else { $status.State }
-        $pillText = if ($step.Mode -eq 'manual') { 'manual' } else { $status.State }
-        $null = $titleRow.Children.Add((New-Pill -Text $pillText -Kind $pillKind))
-        $null = $body.Children.Add($titleRow)
-
-        $null = $body.Children.Add((New-TextBlockControl -Text $step.Summary -Colour '#98A0B3' -Size 12 `
-                    -Margin (New-Object System.Windows.Thickness 0, 3, 0, 0)))
-        if ($status.Detail) {
-            $null = $body.Children.Add((New-TextBlockControl -Text $status.Detail -Colour '#98A0B3' -Size 12))
-        }
-        if ($step.Instructions) {
-            $null = $body.Children.Add((New-TextBlockControl -Text $step.Instructions -Size 12.5 `
-                        -Margin (New-Object System.Windows.Thickness 0, 6, 0, 0)))
-        }
-
-        if ($step.Mode -eq 'auto' -and $actions.Count) {
-            $unchanged = $actions.Count - $changing.Count
-            $expander = New-Object System.Windows.Controls.Expander
-            $expander.Header = "Show the $($changing.Count) file(s) — $(Format-ByteSize ([long]$bytes))" +
-                $(if ($unchanged) { " · $unchanged already on the PTR" } else { '' })
-            $expander.Foreground = Get-Brush '#F0C674'
-            $expander.FontSize = 12
-            $expander.Margin = New-Object System.Windows.Thickness 0, 8, 0, 0
-
-            $list = New-Object System.Windows.Controls.TextBox
-            $list.IsReadOnly = $true
-            # Without AcceptsReturn a TextBox is single-line and the whole file
-            # list renders on one row.
-            $list.AcceptsReturn = $true
-            $list.MaxHeight = 160
-            $list.FontFamily = 'Consolas'
-            $list.FontSize = 11
-            $list.Background = Get-Brush '#171A22'
-            $list.Foreground = Get-Brush '#98A0B3'
-            $list.BorderBrush = Get-Brush '#2F3546'
-            $list.VerticalScrollBarVisibility = 'Auto'
-            $list.TextWrapping = 'NoWrap'
-            $list.Text = (@($actions | ForEach-Object {
-                        $note = if ($_.Note) { "  · $($_.Note)" } else { '' }
-                        '{0,-9} {1}{2}' -f $_.Kind, $_.Destination, $note
-                    }) -join [Environment]::NewLine)
-            $expander.Content = $list
-            $null = $body.Children.Add($expander)
-        }
-
-        if ($step.SourceNote) {
-            $note = New-TextBlockControl -Text $step.SourceNote -Colour '#6E768C' -Size 11 `
-                -Margin (New-Object System.Windows.Thickness 0, 8, 0, 0)
-            $note.FontStyle = 'Italic'
-            $null = $body.Children.Add($note)
-        }
-
-        $null = $grid.Children.Add($body)
-        $card.Child = $grid
-        $null = $ui.StepsPanel.Children.Add($card)
+        $done++
+        $ui.ProgressBar.Value = (100 * $done / $total)
+        # Only worth yielding when something was actually computed.
+        if (-not $cached) { Update-UiNow }
+        if ($script:RefreshAgain) { return }
     }
 
     $script:SelectedTouched = $true
+}
+
+function New-StepCard {
+    <#
+    .SYNOPSIS
+        A step card with the cheap parts filled in and slots for the rest.
+    #>
+    param([Parameter(Mandatory)] $Step)
+
+    $card = New-Object System.Windows.Controls.Border
+    $card.Background = Get-Brush '#222634'
+    $card.BorderBrush = Get-Brush '#2F3546'
+    $card.BorderThickness = New-Object System.Windows.Thickness 1
+    $card.CornerRadius = New-Object System.Windows.CornerRadius 6
+    $card.Padding = New-Object System.Windows.Thickness 12
+    $card.Margin = New-Object System.Windows.Thickness 0, 0, 0, 8
+
+    $grid = New-Object System.Windows.Controls.Grid
+    $checkColumn = New-Object System.Windows.Controls.ColumnDefinition
+    $checkColumn.Width = [System.Windows.GridLength]::Auto
+    $null = $grid.ColumnDefinitions.Add($checkColumn)
+    $null = $grid.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
+
+    $check = New-Object System.Windows.Controls.CheckBox
+    $check.Margin = New-Object System.Windows.Thickness 0, 2, 10, 0
+    $check.VerticalAlignment = 'Top'
+    $check.Tag = $Step
+    # Disabled until its plan lands and says whether it can run.
+    $check.IsEnabled = $false
+    if ($Step.Mode -eq 'auto') {
+        $check.ToolTip = 'Include this step when you press Apply'
+        $check.Add_Click({
+                param($sender, $e)
+                Invoke-Guarded {
+                    $stepId = $sender.Tag.Id
+                    if ($sender.IsChecked) { $null = $script:Selected.Add($stepId) } else { $null = $script:Selected.Remove($stepId) }
+                    $script:SelectedTouched = $true
+                    Update-Summary
+                }
+            })
+    }
+    else {
+        $check.ToolTip = 'Mark this manual step as done'
+        $check.Add_Click({
+                param($sender, $e)
+                Invoke-Guarded {
+                    $stepId = $sender.Tag.Id
+                    if ($sender.IsChecked) { $null = $script:Context.Acknowledged.Add($stepId) }
+                    else { $null = $script:Context.Acknowledged.Remove($stepId) }
+                    # Only this step's own status can have changed.
+                    Update-Steps
+                }
+            })
+    }
+    $null = $grid.Children.Add($check)
+
+    $body = New-Object System.Windows.Controls.StackPanel
+    [System.Windows.Controls.Grid]::SetColumn($body, 1)
+
+    $titleRow = New-Object System.Windows.Controls.StackPanel
+    $titleRow.Orientation = 'Horizontal'
+    $null = $titleRow.Children.Add((New-TextBlockControl -Text $Step.Title -Weight 'SemiBold'))
+    $null = $titleRow.Children.Add((New-Pill -Text 'checking' -Kind 'pending'))
+    $null = $body.Children.Add($titleRow)
+
+    $null = $body.Children.Add((New-TextBlockControl -Text $Step.Summary -Colour '#98A0B3' -Size 12 `
+                -Margin (New-Object System.Windows.Thickness 0, 3, 0, 0)))
+
+    $detail = New-TextBlockControl -Text '' -Colour '#98A0B3' -Size 12
+    $detail.Visibility = 'Collapsed'
+    $null = $body.Children.Add($detail)
+
+    if ($Step.Instructions) {
+        $null = $body.Children.Add((New-TextBlockControl -Text $Step.Instructions -Size 12.5 `
+                    -Margin (New-Object System.Windows.Thickness 0, 6, 0, 0)))
+    }
+
+    # Where the file list goes once there is one.
+    $slot = New-Object System.Windows.Controls.StackPanel
+    $null = $body.Children.Add($slot)
+
+    if ($Step.SourceNote) {
+        $note = New-TextBlockControl -Text $Step.SourceNote -Colour '#6E768C' -Size 11 `
+            -Margin (New-Object System.Windows.Thickness 0, 8, 0, 0)
+        $note.FontStyle = 'Italic'
+        $null = $body.Children.Add($note)
+    }
+
+    $null = $grid.Children.Add($body)
+    $card.Child = $grid
+
+    return [pscustomobject]@{
+        Card     = $card
+        Check    = $check
+        TitleRow = $titleRow
+        Detail   = $detail
+        Slot     = $slot
+    }
+}
+
+function Set-StepCardState {
+    <#
+    .SYNOPSIS
+        Fill in the parts of a card that needed the plan.
+    #>
+    param(
+        [Parameter(Mandatory)] $Card,
+        [Parameter(Mandatory)] $Step,
+        [Parameter(Mandatory)] $Status,
+        [AllowEmptyCollection()] [psobject[]] $Actions
+    )
+
+    $actions = @($Actions)
+    # Skips are files already on the PTR. They belong in the list, so you can see
+    # they were considered, but not in the counts of what will change.
+    $changing = @($actions | Where-Object { $_.Kind -ne 'skip' })
+
+    # First render pre-ticks every automated step that has work to do.
+    if (-not $script:SelectedTouched -and $Step.Mode -eq 'auto' -and $Status.State -ne 'blocked') {
+        $null = $script:Selected.Add($Step.Id)
+    }
+
+    $Card.Card.BorderBrush = Get-Brush $(if ($Status.State -eq 'done') { '#33613F' } else { '#2F3546' })
+
+    if ($Step.Mode -eq 'auto') {
+        $Card.Check.IsChecked = $script:Selected.Contains($Step.Id)
+        $Card.Check.IsEnabled = ($Status.State -ne 'blocked')
+    }
+    else {
+        $Card.Check.IsChecked = ($Status.State -eq 'done')
+        $Card.Check.IsEnabled = $true
+    }
+
+    # Swap the placeholder pill for the real one.
+    $kind = if ($Step.Mode -eq 'manual') { 'manual' } else { $Status.State }
+    $Card.TitleRow.Children.RemoveAt($Card.TitleRow.Children.Count - 1)
+    $null = $Card.TitleRow.Children.Add((New-Pill -Text $kind -Kind $kind))
+
+    if ($Status.Detail) {
+        $Card.Detail.Text = $Status.Detail
+        $Card.Detail.Visibility = 'Visible'
+    }
+
+    $Card.Slot.Children.Clear()
+    if ($Step.Mode -ne 'auto' -or -not $actions.Count) { return }
+
+    $bytes = [long](($changing | Measure-Object -Property Size -Sum).Sum)
+    $unchanged = $actions.Count - $changing.Count
+    $expander = New-Object System.Windows.Controls.Expander
+    $expander.Header = "Show the $($changing.Count) file(s) — $(Format-ByteSize $bytes)" +
+        $(if ($unchanged) { " · $unchanged already on the PTR" } else { '' })
+    $expander.Foreground = Get-Brush '#F0C674'
+    $expander.FontSize = 12
+    $expander.Margin = New-Object System.Windows.Thickness 0, 8, 0, 0
+    $expander.Tag = $actions
+    # The list is built the first time it is opened. Formatting tens of thousands
+    # of lines for a panel nobody has looked at is most of a refresh wasted.
+    $expander.Add_Expanded({
+            param($sender, $e)
+            Invoke-Guarded {
+                if ($sender.Content) { return }
+                $sender.Content = New-FileListBox -Actions $sender.Tag
+            }
+        })
+    $null = $Card.Slot.Children.Add($expander)
+}
+
+function New-FileListBox {
+    <#
+    .SYNOPSIS
+        The read-only list of planned files inside a step's expander.
+    #>
+    param([AllowEmptyCollection()] [psobject[]] $Actions)
+
+    $list = New-Object System.Windows.Controls.TextBox
+    $list.IsReadOnly = $true
+    # Without AcceptsReturn a TextBox is single-line and the whole file list
+    # renders on one row.
+    $list.AcceptsReturn = $true
+    $list.MaxHeight = 160
+    $list.FontFamily = 'Consolas'
+    $list.FontSize = 11
+    $list.Background = Get-Brush '#171A22'
+    $list.Foreground = Get-Brush '#98A0B3'
+    $list.BorderBrush = Get-Brush '#2F3546'
+    $list.VerticalScrollBarVisibility = 'Auto'
+    $list.TextWrapping = 'NoWrap'
+
+    $builder = New-Object System.Text.StringBuilder
+    foreach ($action in @($Actions)) {
+        $note = if ($action.Note) { "  · $($action.Note)" } else { '' }
+        $null = $builder.AppendLine(('{0,-9} {1}{2}' -f $action.Kind, $action.Destination, $note))
+    }
+    $list.Text = $builder.ToString().TrimEnd()
+    return $list
 }
 
 function Update-Summary {
@@ -605,6 +783,19 @@ function Update-Options {
 }
 
 function Update-All {
+    <#
+    .SYNOPSIS
+        Redraw everything, from scratch.
+
+    .DESCRIPTION
+        Every caller of this reaches it because something wholesale changed — a
+        different client picked, a rescan, or an Apply or Restore that just moved
+        files about. So the cached plans go first: keeping one after writing to
+        the PTR folder would leave a step reporting work it has already done. The
+        narrower changes (account, character, an option) call Update-Steps
+        directly and throw away only what they have to.
+    #>
+    Reset-Plan
     Update-FolderStatus
     Update-InstallCombos
     Update-AccountCombos
@@ -615,8 +806,10 @@ function Update-All {
 }
 
 function Invoke-Rescan {
-    $script:Plans = @{}
+    Reset-Plan
     $ui.SummaryText.Text = 'Reading folders…'
+    $ui.PreviewButton.IsEnabled = $false
+    $ui.ApplyButton.IsEnabled = $false
     Update-UiNow
 
     # The box is authoritative: look where the user said, not everywhere. -Path
@@ -760,6 +953,8 @@ $ui.SourceAccountCombo.Add_SelectionChanged({
         if ($script:Suppress) { return }
         Invoke-Guarded {
             $script:Context = Set-PtrSetupAccount -Context $script:Context -Side 'Source' -Account ([string]$ui.SourceAccountCombo.SelectedItem)
+            # Changing the account re-guesses the character mapping too.
+            Reset-Plan -Change 'account'
             Update-CharacterPanel; Update-Steps; Update-Summary
         }
     })
@@ -768,6 +963,8 @@ $ui.TargetAccountCombo.Add_SelectionChanged({
         if ($script:Suppress) { return }
         Invoke-Guarded {
             $script:Context = Set-PtrSetupAccount -Context $script:Context -Side 'Target' -Account ([string]$ui.TargetAccountCombo.SelectedItem)
+            # Changing the account re-guesses the character mapping too.
+            Reset-Plan -Change 'account'
             Update-CharacterPanel; Update-Steps; Update-Summary
         }
     })
@@ -786,6 +983,7 @@ foreach ($controlName in $optionMap.Keys) {
             if ($script:Suppress) { return }
             Invoke-Guarded {
                 $script:Context.Options[$sender.Tag] = [bool]$sender.IsChecked
+                Reset-Plan -Change $sender.Tag
                 Update-Steps
                 Update-Summary
             }
@@ -829,13 +1027,28 @@ $window.Add_ContentRendered({
         if ($script:Started) { return }
         $script:Started = $true
         Invoke-Guarded {
-            # -Path wins when given; otherwise pick up where the user left off.
-            $ui.FolderBox.Text = 'Looking for World of Warcraft…'
-            Update-UiNow
-            $script:WowFolder = if ($script:ExtraPaths.Count) { $script:ExtraPaths[0] } else { Get-StartingFolder }
-            $ui.FolderBox.Text = $script:WowFolder
+            try {
+                # -Path wins when given; otherwise pick up where the user left off.
+                $ui.FolderBox.Text = 'Looking for World of Warcraft…'
+                $ui.FolderStatus.Text = 'Checking the usual places and the registry…'
+                # Detection has no sensible percentage, so the bar just moves.
+                $ui.ProgressBar.IsIndeterminate = $true
+                Update-UiNow
+                $script:WowFolder = if ($script:ExtraPaths.Count) { $script:ExtraPaths[0] } else { Get-StartingFolder }
+                $ui.FolderBox.Text = $script:WowFolder
+            }
+            finally {
+                # Left on, this would keep sweeping over the real progress the
+                # step list reports from here on.
+                $ui.ProgressBar.IsIndeterminate = $false
+            }
             Invoke-Rescan
         }
     })
+
+Write-Startup 'opening...'
+Write-Host ''
+Write-Host '  The window is open. Closing it closes this console too.' -ForegroundColor DarkGray
+Write-Host ''
 
 $null = $window.ShowDialog()

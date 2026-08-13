@@ -301,3 +301,133 @@ Describe 'The folder box, without WPF' {
         finally { $env:PTRSETUP_SETTINGS = $null }
     }
 }
+
+Describe 'What a change forces the window to re-plan' {
+    <#
+        The window keeps plans between refreshes and throws away only the ones a
+        change could have altered, because re-planning copy_addons means walking
+        the whole AddOns folder. That is safe exactly as long as the map is not
+        missing anything, so the map is read out of the window script and checked
+        against what the module actually does.
+    #>
+
+    function Get-InvalidationMap {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $assignment = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -eq '$script:Invalidates'
+                }, $true))
+        Assert-Equal 1 $assignment.Count 'Expected one $script:Invalidates in the window script.'
+        return [scriptblock]::Create($assignment[0].Right.Extent.Text).Invoke()[0]
+    }
+
+    function Get-PlanFingerprint {
+        # Content matters as well as the file list: turning AllowOutOfDate off
+        # rewrites Config.wtf without changing which file gets written.
+        param($Context)
+
+        $out = @{}
+        foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+            $out[$step.Id] = (@(New-PtrSetupStepPlan -Step $step -Context $Context) |
+                    ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
+        }
+        return $out
+    }
+
+    It 'names a real step and a real option throughout' {
+        $map = Get-InvalidationMap
+        $stepIds = @((Get-PtrSetupStep).Id)
+        $options = @((New-PtrSetupContext).Options.Keys)
+
+        foreach ($change in $map.Keys) {
+            foreach ($stepId in $map[$change]) {
+                Assert-True ($stepIds -contains $stepId) "$change invalidates '$stepId', which is not a step."
+            }
+            if ($change -in @('account', 'character')) { continue }
+            Assert-True ($options -contains $change) "'$change' is not an option, so it would clear everything anyway."
+        }
+    }
+
+    It 'never misses a step that the change really affects' {
+        $mockBuilder = Join-Path $repoRoot 'tools/New-MockWowFolder.ps1'
+        $null = & $mockBuilder -Path $script:TestDrive -Force -Quiet
+        $installs = @(Get-WowInstall -Path (Join-Path $script:TestDrive 'World of Warcraft') -SkipDefaultLocations)
+        $map = Get-InvalidationMap
+
+        # Each case is the change the window reports, and how to make it happen.
+        $cases = @(
+            @{ Change = 'character'; Do = { param($c) $c.Character = @() } }
+            @{ Change = 'ReplaceAddOns'; Do = { param($c) $c.Options['ReplaceAddOns'] = $false } }
+            @{ Change = 'IncludeMacrosBindings'; Do = { param($c) $c.Options['IncludeMacrosBindings'] = $false } }
+            @{ Change = 'IncludeChatCache'; Do = { param($c) $c.Options['IncludeChatCache'] = $true } }
+            @{ Change = 'AllowOutOfDate'; Do = { param($c) $c.Options['AllowOutOfDate'] = $false } }
+        )
+
+        foreach ($case in $cases) {
+            $context = Initialize-PtrSetupContext -Install $installs
+            $before = Get-PlanFingerprint -Context $context
+            & $case.Do $context
+            $after = Get-PlanFingerprint -Context $context
+
+            $reallyChanged = @($after.Keys | Where-Object { $before[$_] -ne $after[$_] })
+            $wouldClear = @($map[$case.Change])
+            foreach ($stepId in $reallyChanged) {
+                Assert-True ($wouldClear -contains $stepId) `
+                    ("Changing $($case.Change) alters $stepId, but the window would keep its cached plan " +
+                        'and show a stale file count.')
+            }
+        }
+    }
+
+    It 'clears everything for a change it does not know about' {
+        # Overwrite is deliberately absent: it reaches several steps, and being
+        # wrong here shows the user a stale plan.
+        $map = Get-InvalidationMap
+        Assert-True (-not $map.ContainsKey('Overwrite')) `
+            'Overwrite affects several steps; leaving it out of the map is what makes it clear them all.'
+    }
+}
+
+Describe 'Keeping cached plans honest' {
+
+    It 'throws the cache away on any wholesale refresh' {
+        # Update-All is reached after a rescan, an install change, an Apply and a
+        # Restore. The last two have just written to the PTR folder, so a plan
+        # kept across one would report work that is already done.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $updateAll = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Update-All'
+                }, $true))
+        Assert-Equal 1 $updateAll.Count
+        Assert-True ($updateAll[0].Body.Extent.Text -match 'Reset-Plan') `
+            'Update-All must clear the plan cache, or Apply and Restore leave stale file counts on screen.'
+    }
+
+    It 'is emptied only by Reset-Plan, or where it is first declared' {
+        # One door out, so the invalidation map is the whole story. The initial
+        # declaration is the exception: it runs before Reset-Plan is defined.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $emptying = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -eq '$script:Plans' -and
+                    $node.Right.Extent.Text -replace '\s', '' -eq '@{}'
+                }, $true))
+        Assert-True ($emptying.Count -ge 1) 'Expected to find the cache being emptied somewhere.'
+
+        foreach ($assignment in $emptying) {
+            $enclosing = @($ast.FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                        $node.Extent.StartOffset -le $assignment.Extent.StartOffset -and
+                        $node.Extent.EndOffset -ge $assignment.Extent.EndOffset
+                    }, $true))
+            $names = @($enclosing | ForEach-Object { $_.Name })
+            Assert-True ($names.Count -eq 0 -or $names -contains 'Reset-Plan') `
+                ("The cache is emptied inside $($names -join '/') at line $($assignment.Extent.StartLineNumber). " +
+                    'Everything that discards plans should go through Reset-Plan.')
+        }
+    }
+}

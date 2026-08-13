@@ -85,15 +85,39 @@ thousands of files. Two things follow.
 
 **A plan is built once per refresh.** The status, the file list on the card, and the
 footer total all want the same answer, and the window used to ask for it three times —
-27 tree walks to open a window with nine steps in it. `Update-Steps` now builds each
-plan once, keeps it in `$script:Plans`, and passes it to `Get-PtrSetupStepStatus
--Action`; `Update-Summary` reads the same cache. Roughly three times faster to start on
-a 3,000-file install, and the gap widens with the size of the folder.
+27 tree walks to open a window with nine steps in it. `Update-Steps` builds each plan
+once, keeps it in `$script:Plans`, and passes it to `Get-PtrSetupStepStatus -Action`;
+`Update-Summary` reads the same cache.
 
-**The first scan happens after the window is on screen.** It is hung off
-`ContentRendered` rather than run before `ShowDialog`, because the work takes as long
-either way — the difference is whether the user watches it happen or stares at nothing
-wondering if the double-click registered.
+**Only the plans a change could have altered are thrown away.** Picking a character
+cannot alter what the addon copy would do, so re-walking a 30,000-file `AddOns` folder
+to find that out is the difference between a dropdown that responds and one that looks
+hung. `$script:Invalidates` maps each change to the steps that read it, and `Reset-Plan`
+is the only way plans are discarded. Anything not in the map clears everything, which is
+why `Overwrite` is deliberately absent — it reaches several steps and guessing wrong
+shows the user a stale file count. `Update-All` clears the lot, because every path to it
+(a rescan, a different client, an Apply, a Restore) has changed something wholesale;
+Apply and Restore in particular have just written to the PTR folder. On a 3,000-file
+install that takes picking a character or an account from about 1.3 seconds to 0.14.
+
+`Ui.Tests.ps1` reads the map out of the script and checks it against what the module
+actually does, so a step that starts reading a new option cannot quietly keep a stale
+plan.
+
+**Cards appear before their plans do.** `Write-StepCard` renders all nine immediately
+with a `checking` pill, then fills each one in as its plan lands, pumping the dispatcher
+between steps so the window stays live and the progress bar moves. A change made
+mid-render sets `$script:RefreshAgain` and the pass restarts rather than being blocked
+or stacking.
+
+**The file list inside a step is built when it is first expanded**, not when the card is
+drawn. Formatting tens of thousands of lines for a panel nobody has opened is most of a
+refresh wasted.
+
+**The first scan happens after the window is on screen**, hung off `ContentRendered`
+rather than run before `ShowDialog`. Before that the window does not exist yet, so the
+console the launcher opened reports what is loading — a few seconds of silence after a
+double-click reads as a machine that has ignored you.
 
 `Get-RelativeFile` is the inner loop of all of it, so it does its own string handling
 rather than calling `Get-PathRelative` (and through it `GetFullPath`) once per file.
