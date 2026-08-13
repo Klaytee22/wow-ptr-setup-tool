@@ -78,6 +78,26 @@ rather than tolerant: a tolerance wide enough for a coarse filesystem is also wi
 to call two different same-size files identical, and skipping a file the user edited is
 the worse of the two failures.
 
+## Keeping the window quick
+
+Building a step's plan walks the whole `AddOns` tree, and a real one is tens of
+thousands of files. Two things follow.
+
+**A plan is built once per refresh.** The status, the file list on the card, and the
+footer total all want the same answer, and the window used to ask for it three times —
+27 tree walks to open a window with nine steps in it. `Update-Steps` now builds each
+plan once, keeps it in `$script:Plans`, and passes it to `Get-PtrSetupStepStatus
+-Action`; `Update-Summary` reads the same cache. Roughly three times faster to start on
+a 3,000-file install, and the gap widens with the size of the folder.
+
+**The first scan happens after the window is on screen.** It is hung off
+`ContentRendered` rather than run before `ShowDialog`, because the work takes as long
+either way — the difference is whether the user watches it happen or stares at nothing
+wondering if the double-click registered.
+
+`Get-RelativeFile` is the inner loop of all of it, so it does its own string handling
+rather than calling `Get-PathRelative` (and through it `GetFullPath`) once per file.
+
 ## Safety model
 
 `Invoke-FileActionPlan` is the only thing that writes, and it:

@@ -419,11 +419,19 @@ function Get-PtrSetupStepStatus {
     <#
     .SYNOPSIS
         Where a step stands right now. Recomputed on every refresh.
+
+    .PARAMETER Action
+        A plan for this step that the caller has already built. Working it out
+        means walking the whole AddOns tree, and the window needs the same plan
+        to render the file list and total the summary — without this it would be
+        built three times per refresh, which on a real install is the difference
+        between a window that opens and one that appears to hang.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [psobject] $Step,
-        [Parameter(Mandatory)] [psobject] $Context
+        [Parameter(Mandatory)] [psobject] $Context,
+        [AllowEmptyCollection()] [psobject[]] $Action
     )
 
     if ($Step.Status) { return & $Step.Status $Context }
@@ -436,7 +444,12 @@ function Get-PtrSetupStepStatus {
     $blocker = Get-PtrSetupStepBlocker -Step $Step -Context $Context
     if ($blocker) { return New-PtrSetupStepStatus -State 'blocked' -Detail $blocker }
 
-    $actions = @(New-PtrSetupStepPlan -Step $Step -Context $Context)
+    $actions = if ($PSBoundParameters.ContainsKey('Action')) {
+        @($Action)
+    }
+    else {
+        @(New-PtrSetupStepPlan -Step $Step -Context $Context)
+    }
     if (-not $actions) { return New-PtrSetupStepStatus -State 'done' -Detail 'Already up to date — nothing left to copy.' }
     if (-not ($actions | Where-Object { $_.Kind -ne 'skip' })) {
         return New-PtrSetupStepStatus -State 'done' -Detail 'Every file is already on the PTR.'

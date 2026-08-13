@@ -121,15 +121,39 @@ function Get-RelativeFile {
 
     if (-not (Test-Path -LiteralPath $Root -PathType Container)) { return @() }
 
-    $rootFull = [System.IO.Path]::GetFullPath($Root)
+    # This runs over the whole AddOns tree every time a plan is built, and a real
+    # one is tens of thousands of files, so the per-file work is kept to string
+    # handling: the prefix is normalised once here instead of calling
+    # Get-PathRelative (and through it GetFullPath) on every entry, and the
+    # exclusion check is a loop rather than a pipeline per file.
+    $separator = [System.IO.Path]::DirectorySeparatorChar
+    $prefix = [System.IO.Path]::GetFullPath($Root).TrimEnd($separator, [System.IO.Path]::AltDirectorySeparatorChar) + $separator
+    # [char[]] on purpose: an untyped @() is object[], which binds to a different
+    # String.Split overload that does not split on these at all, so nested paths
+    # would come back whole and nothing under a subfolder would ever be excluded.
+    $splitOn = [char[]] @('\', '/')
+
     $files = Get-ChildItem -LiteralPath $Root -File -Recurse -Force -ErrorAction SilentlyContinue
     $relative = foreach ($file in $files) {
-        $rel = Get-PathRelative -Base $rootFull -Path $file.FullName
-        $parts = $rel -split '[\\/]'
-        if ($parts | Where-Object { $Exclude -contains $_ }) { continue }
+        $full = $file.FullName
+        $rel = if ($full.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $full.Substring($prefix.Length)
+        }
+        else {
+            # A reparse point or an odd casing can land outside the prefix; fall
+            # back to the careful version rather than dropping the file.
+            Get-PathRelative -Base $prefix -Path $full
+        }
+
+        $excluded = $false
+        foreach ($part in $rel.Split($splitOn)) {
+            if ($Exclude -contains $part) { $excluded = $true; break }
+        }
+        if ($excluded) { continue }
+
         [pscustomobject]@{
             Relative         = $rel
-            FullName         = $file.FullName
+            FullName         = $full
             Length           = $file.Length
             LastWriteTimeUtc = $file.LastWriteTimeUtc
         }

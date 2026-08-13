@@ -261,3 +261,40 @@ Describe 'Session helpers' {
         Assert-False (Get-ContextOption -Context $context -Name 'IncludeChatCache' -Default $false)
     }
 }
+
+Describe 'Reusing a plan' {
+    <#
+        The window builds each step's plan once and hands it to the status call
+        rather than letting it build its own, because working one out walks the
+        whole AddOns tree. That is only safe while the two agree.
+    #>
+
+    It 'reports the same status whether or not it is given the plan' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+
+        foreach ($stage in @('before', 'after')) {
+            if ($stage -eq 'after') { $null = Invoke-PtrSetup -Context $context -StepId (Get-PtrSetupStep).Id }
+
+            foreach ($step in (Get-PtrSetupStep)) {
+                $planned = @(New-PtrSetupStepPlan -Step $step -Context $context)
+                $onItsOwn = Get-PtrSetupStepStatus -Step $step -Context $context
+                $given = Get-PtrSetupStepStatus -Step $step -Context $context -Action $planned
+
+                Assert-Equal $onItsOwn.State $given.State "$($step.Id) disagreed about State ($stage a run)."
+                Assert-Equal $onItsOwn.Detail $given.Detail "$($step.Id) disagreed about Detail ($stage a run)."
+            }
+        }
+    }
+
+    It 'still works it out for itself when handed nothing' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $step = Get-PtrSetupStep -Id 'copy_addons'
+
+        # An empty plan passed explicitly means "nothing to do", which is not the
+        # same as not passing one at all.
+        Assert-Equal 'ready' (Get-PtrSetupStepStatus -Step $step -Context $context).State
+        Assert-Equal 'done' (Get-PtrSetupStepStatus -Step $step -Context $context -Action @()).State
+    }
+}

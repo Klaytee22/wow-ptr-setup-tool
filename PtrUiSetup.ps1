@@ -84,6 +84,10 @@ $script:WowFolder = ''
 $script:ExtraPaths = [System.Collections.Generic.List[string]]::new()
 foreach ($extra in $Path) { if ($extra) { $script:ExtraPaths.Add($extra) } }
 $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
+# Plans for the current refresh, keyed by step id. Building one walks the whole
+# AddOns tree, and the status, the file list and the summary all want the same
+# answer, so it is worked out once per refresh and read three times.
+$script:Plans = @{}
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
 $script:Suppress = $false
@@ -417,8 +421,9 @@ function Update-Steps {
     $ui.StepsPanel.Children.Clear()
 
     foreach ($step in (Get-PtrSetupStep)) {
-        $status = Get-PtrSetupStepStatus -Step $step -Context $script:Context
         $actions = @(New-PtrSetupStepPlan -Step $step -Context $script:Context)
+        $script:Plans[$step.Id] = $actions
+        $status = Get-PtrSetupStepStatus -Step $step -Context $script:Context -Action $actions
         # Skips are files already on the PTR. They belong in the list, so you can
         # see they were considered, but not in the counts of what will change.
         $changing = @($actions | Where-Object { $_.Kind -ne 'skip' })
@@ -547,7 +552,10 @@ function Update-Summary {
     $bytes = [long]0
     foreach ($step in (Get-PtrSetupStep)) {
         if (-not $script:Selected.Contains($step.Id)) { continue }
-        $actions = @(New-PtrSetupStepPlan -Step $step -Context $script:Context | Where-Object { $_.Kind -ne 'skip' })
+        # Update-Steps always runs first and leaves the plan here.
+        $planned = if ($script:Plans.ContainsKey($step.Id)) { $script:Plans[$step.Id] }
+        else { @(New-PtrSetupStepPlan -Step $step -Context $script:Context) }
+        $actions = @($planned | Where-Object { $_.Kind -ne 'skip' })
         $files += $actions.Count
         $bytes += ([long](($actions | Measure-Object -Property Size -Sum).Sum))
     }
@@ -607,6 +615,7 @@ function Update-All {
 }
 
 function Invoke-Rescan {
+    $script:Plans = @{}
     $ui.SummaryText.Text = 'Reading folders…'
     Update-UiNow
 
@@ -808,10 +817,25 @@ $ui.ApplyButton.Add_Click({ Invoke-Guarded { Invoke-Run } })
 # Go
 # --------------------------------------------------------------------------
 
-# -Path wins when given; otherwise pick up where the user left off, or detect.
-$script:WowFolder = if ($script:ExtraPaths.Count) { $script:ExtraPaths[0] } else { Get-StartingFolder }
-$ui.FolderBox.Text = $script:WowFolder
-
-Invoke-Rescan
 Write-Result 'Quit World of Warcraft before applying — it rewrites WTF when it exits.'
+$ui.SummaryText.Text = 'Starting…'
+
+# The first scan happens after the window is on screen, not before it. Reading a
+# real AddOns folder takes a moment, and doing it first means the user double
+# clicks and watches nothing happen; doing it here means they watch it happen.
+# ContentRendered can fire again later, so this only runs the once.
+$script:Started = $false
+$window.Add_ContentRendered({
+        if ($script:Started) { return }
+        $script:Started = $true
+        Invoke-Guarded {
+            # -Path wins when given; otherwise pick up where the user left off.
+            $ui.FolderBox.Text = 'Looking for World of Warcraft…'
+            Update-UiNow
+            $script:WowFolder = if ($script:ExtraPaths.Count) { $script:ExtraPaths[0] } else { Get-StartingFolder }
+            $ui.FolderBox.Text = $script:WowFolder
+            Invoke-Rescan
+        }
+    })
+
 $null = $window.ShowDialog()

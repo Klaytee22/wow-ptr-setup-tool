@@ -22,6 +22,19 @@
         Assert-Equal 'already exists' $skipped.Note
     }
 
+    It 'leaves junk out of the plan from a subfolder too' {
+        # The exclusion check splits the relative path, and a top-level file has
+        # nothing to split — so a broken split still excludes Thumbs.db at the
+        # root while quietly letting every nested one through.
+        $source = Join-Path $script:TestDrive 'src'
+        $null = New-TestFile -Path (Join-Path $source 'deep/nested/Thumbs.db') -Content 'junk'
+        $null = New-TestFile -Path (Join-Path $source 'deep/nested/keep.lua') -Content 'code'
+
+        $planned = @((New-TreeCopyPlan -Source $source -Destination (Join-Path $script:TestDrive 'dest')).Destination)
+        Assert-Equal 1 $planned.Count "Expected only the .lua, got: $($planned -join ', ')"
+        Assert-True ($planned[0] -like '*keep.lua')
+    }
+
     It 'leaves junk files out of the plan' {
         $source = Join-Path $script:TestDrive 'src'
         $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'one'
