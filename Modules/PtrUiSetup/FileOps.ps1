@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Plan-then-apply file copying, with a backup of everything overwritten.
 

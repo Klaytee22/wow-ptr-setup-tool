@@ -1,4 +1,4 @@
-$live = @'
+﻿$live = @'
 SET gxWindow "1"
 SET gxResolution "2560x1440"
 SET realmList "us.logon.worldofwarcraft.com"

@@ -1,4 +1,4 @@
-@{
+﻿@{
     RootModule        = 'PtrUiSetup.psm1'
     ModuleVersion     = '0.3.0'
     GUID              = 'b6f4a1c2-7d3e-4a58-9c21-8f0d5e6a7b31'

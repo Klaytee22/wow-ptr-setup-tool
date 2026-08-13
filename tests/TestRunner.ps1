@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     A tiny Describe/It test harness with no external dependencies.
 

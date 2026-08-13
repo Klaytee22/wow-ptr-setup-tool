@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Turning a scan of the machine into a filled-in context.
 

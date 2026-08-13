@@ -1,4 +1,4 @@
-<#
+﻿<#
     The window itself cannot be exercised off Windows — WPF is not there to load.
     What can be checked anywhere is the contract between the two files: every
     control the script reaches for must exist in the XAML, and both files must
@@ -12,7 +12,7 @@ $xamlPath = Join-Path $repoRoot 'ui/MainWindow.xaml'
 
 function Get-XamlName {
     param([string] $Path)
-    [xml] $document = Get-Content -LiteralPath $Path -Raw
+    [xml] $document = [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
     $names = foreach ($node in $document.SelectNodes('//*[@*[local-name()="Name"]]')) {
         $attribute = $node.Attributes['x:Name']
         if ($attribute) { $attribute.Value }
@@ -41,7 +41,7 @@ Describe 'The window and its XAML' {
         Assert-Equal 0 @($errors).Count ("PtrUiSetup.ps1 has parse errors: " + (@($errors) -join '; '))
 
         # A well-formed XAML document is the least the loader needs.
-        [xml] $document = Get-Content -LiteralPath $xamlPath -Raw
+        [xml] $document = [System.IO.File]::ReadAllText($xamlPath, [System.Text.Encoding]::UTF8)
         Assert-Equal 'Window' $document.DocumentElement.LocalName
     }
 
@@ -92,7 +92,7 @@ Describe 'The window and its XAML' {
         # renders on one row whatever newlines it contains, and the vertical
         # scrollbar never shows. Both boxes here are read-only logs, so the only
         # thing AcceptsReturn changes is whether they are readable.
-        [xml] $document = Get-Content -LiteralPath $xamlPath -Raw
+        [xml] $document = [System.IO.File]::ReadAllText($xamlPath, [System.Text.Encoding]::UTF8)
         foreach ($node in $document.SelectNodes('//*[local-name()="TextBox"]')) {
             if ($node.GetAttribute('VerticalScrollBarVisibility') -ne 'Auto') { continue }
             Assert-Equal 'True' $node.GetAttribute('AcceptsReturn') `

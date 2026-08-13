@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Build a fake "World of Warcraft" folder to test the tool against.
 

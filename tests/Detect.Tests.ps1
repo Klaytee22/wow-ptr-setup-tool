@@ -1,4 +1,4 @@
-Describe 'Get-WowInstall' {
+﻿Describe 'Get-WowInstall' {
 
     It 'finds both clients under a World of Warcraft folder' {
         $root = New-FakeWowRoot -Parent $script:TestDrive

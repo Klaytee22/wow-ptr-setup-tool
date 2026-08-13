@@ -1,4 +1,4 @@
-Describe 'copy_addons' {
+﻿Describe 'copy_addons' {
 
     It 'copies the whole addon folder across' {
         $context = New-FakeContext -Root (New-FakeWowRoot -Parent $script:TestDrive)

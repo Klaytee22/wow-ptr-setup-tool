@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Builders for fake World of Warcraft install trees.
 

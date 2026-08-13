@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Finds WoW installs on this machine and enumerates what lives inside them.
 

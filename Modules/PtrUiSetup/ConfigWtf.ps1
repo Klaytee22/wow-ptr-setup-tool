@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Read and merge Config.wtf.
 

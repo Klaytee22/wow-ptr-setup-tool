@@ -132,7 +132,7 @@ Modules/PtrUiSetup/
   Session.ps1                 first-guess selection and keeping it consistent
   Settings.ps1                remembers the folder you picked
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        140 tests, no game install and no Pester required
+tests/                        143 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -181,12 +181,12 @@ each of its entries.
 ## Development
 
 ```powershell
-./tests/Invoke-Tests.ps1                       # all 140
+./tests/Invoke-Tests.ps1                       # all 143
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
 
-**Unit tests** (`Detect`, `ConfigWtf`, `FileOps`, `Settings`, `Steps`, `Ui`) cover one
-function at a time against small fixtures. **Integration tests** (`Integration.Tests.ps1`) build the
+**Unit tests** (`Detect`, `ConfigWtf`, `Encoding`, `FileOps`, `Settings`, `Steps`, `Ui`)
+cover one function at a time against small fixtures. **Integration tests** (`Integration.Tests.ps1`) build the
 real mock install from `tools/New-MockWowFolder.ps1` and walk the guide end to end,
 asserting on what lands on disk — one test per instruction in the guide, plus undo,
 idempotency, options, and awkward cases (PTR never launched, renamed account folder,
@@ -212,7 +212,7 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 140 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 143 passing tests, including an end-to-end pass over a realistic mock install.
 
 The window itself **has still not been opened on a real Windows machine**: WPF cannot run
 where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it

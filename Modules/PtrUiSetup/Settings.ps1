@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Remembering the folder the user picked, so they pick it once.
 

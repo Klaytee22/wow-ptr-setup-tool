@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     The window. Copies your live WoW UI, addons and settings onto the PTR client.
 
@@ -62,7 +62,10 @@ Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Sys
 # --------------------------------------------------------------------------
 
 $xamlPath = Join-Path $PSScriptRoot 'ui/MainWindow.xaml'
-[xml] $xaml = Get-Content -LiteralPath $xamlPath -Raw
+# Read as UTF-8 explicitly. Get-Content on Windows PowerShell 5.1 falls back to
+# the machine's ANSI code page for a file it cannot prove is Unicode, which turns
+# every em dash in the layout into three characters of mojibake.
+[xml] $xaml = [System.IO.File]::ReadAllText($xamlPath, [System.Text.Encoding]::UTF8)
 $window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 
 # Every x:Name in the XAML becomes $ui.<Name>.

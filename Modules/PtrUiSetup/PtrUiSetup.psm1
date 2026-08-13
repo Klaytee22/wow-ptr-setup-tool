@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PtrUiSetup — copy a live World of Warcraft UI onto the PTR client.
 

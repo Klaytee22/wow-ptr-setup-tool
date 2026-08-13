@@ -1,4 +1,4 @@
-<#
+﻿<#
     Cross-check against the other tool that automates this job:
     https://github.com/Azevedoc/WoW-PTR-Config-Copier (CopyWoWConfigs.ps1).
 

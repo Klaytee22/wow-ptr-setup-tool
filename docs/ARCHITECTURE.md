@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 ## The shape of it
 
@@ -114,6 +114,16 @@ wrapped rather than repeated:
 | `[System.IO.Path]::GetRelativePath` is .NET Core only | `Get-PathRelative` |
 | `Set-Content -Encoding UTF8` writes a BOM on 5.1, none on 7 | `Write-TextFileNoBom` |
 | `$IsWindows` / `$IsMacOS` do not exist on 5.1 (and `Set-StrictMode` makes reading them fatal) | `Test-WindowsHost` / `Test-MacHost` |
+| 5.1 decodes a BOM-less script as ANSI, not UTF-8 | every source file carries a UTF-8 BOM, enforced by `Encoding.Tests.ps1` |
+
+That last one is the worst of the three, because it does not degrade — it stops the
+tool from starting. Under Windows-1252 the three UTF-8 bytes of an em dash come back
+as three characters ending in `U+201D`, and PowerShell accepts curly quotes as real
+string delimiters. One em dash inside a single-quoted string therefore opens a string
+that is never closed, and the file fails to parse with a message about a missing
+terminator hundreds of lines later. Everywhere the tests run reads BOM-less UTF-8
+correctly, so nothing catches it except the byte-level check — and the one machine it
+breaks on is the one the double-click launcher uses.
 
 CI runs the suite under both editions so a regression here shows up as a red build
 rather than a user's crash.

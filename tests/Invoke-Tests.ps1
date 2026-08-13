@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Runs the whole suite. No external modules required.
 

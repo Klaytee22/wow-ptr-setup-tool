@@ -1,4 +1,4 @@
-<#
+﻿<#
     The settings file exists so the folder is picked once, not every launch.
     It is also the one thing in the tool that is allowed to fail quietly: a
     machine where it cannot be written still has to copy addons.

@@ -1,4 +1,4 @@
-<#
+﻿<#
     End-to-end tests over the real mock folder from tools/New-MockWowFolder.ps1 —
     the same one you build on Windows to try the window by hand. Where the unit
     tests check one function, these walk the guide from start to finish and
