@@ -732,7 +732,10 @@ function Update-Steps {
             $null = $script:Selected.Add($step.Id)
         }
 
-        $card = New-StepCard -Step $step -Blocked ([bool]$blocker)
+        # -Blocked:(...) with the colon. Written as "-Blocked (...)" PowerShell
+        # reads the switch as simply present and the value as a positional
+        # argument, which an advanced function rejects outright.
+        $card = New-StepCard -Step $step -Blocked:([bool]$blocker)
         $script:Cards[$step.Id] = $card
         $null = $ui.StepsPanel.Children.Add($card.Card)
     }

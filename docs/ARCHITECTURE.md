@@ -220,6 +220,15 @@ Two layers:
   realistic install, the suite fails. Tree comparisons are SHA-256 per file, which is
   how "the live client is untouched" and "undo restores exactly" are asserted.
 
+Most of the window cannot be run by the suite at all, which makes the mistakes
+PowerShell only reports when a line executes the dangerous ones.
+`Syntax.Tests.ps1` walks the syntax tree of every file for three of them: a call to a
+function that does not exist, a call naming a parameter its target does not have, and a
+switch given its value with a space instead of a colon. That last one is not a typo but
+a trap — `-Blocked $false` reads the switch as present and `$false` as a positional
+argument, so it means the opposite of what it looks like and an advanced function
+rejects it outright. It shipped once, and emptied the step list.
+
 What the tests do *not* cover: the window actually rendering. `Ui.Tests.ps1` closes
 part of that gap without WPF — it parses `PtrUiSetup.ps1` and `MainWindow.xaml` and
 asserts every `$ui.<Name>` the script reaches for exists in the XAML and vice versa,
