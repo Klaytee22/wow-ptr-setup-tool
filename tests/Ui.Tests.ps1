@@ -494,7 +494,7 @@ Describe 'The background planner' {
                 $result = $shell.EndInvoke($handle)
                 Assert-Equal 0 @($shell.Streams.Error).Count "The worker reported: $($shell.Streams.Error)"
 
-                $text = (@($result[0]) | ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
+                $text = (@($result) | ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
                 $shell.Dispose()
                 Assert-Equal $expected[$id] $text "$id planned differently on the worker."
             }
@@ -576,5 +576,81 @@ Describe 'The step cards' {
         foreach ($stepId in @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)) {
             Assert-True ($order -contains $stepId) "$stepId is missing from the planning order, so it would sort first by accident."
         }
+    }
+}
+
+Describe 'The planning queue' {
+    <#
+        Driven by hand here: the dispatcher timer cannot run off Windows, but
+        every decision it makes can. This is the loop that got stuck on "working
+        out what needs copying" with Apply disabled and no way forward.
+    #>
+
+    function Use-Planner {
+        <#
+            The planner functions from the window, with WPF replaced by objects
+            that record what was set. Returns the stub $ui so a test can read it.
+        #>
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $wanted = @('Get-PlanWorker', 'Stop-PlanRequest', 'Clear-AbandonedRequest', 'Start-PlanRequest',
+            'Start-NextPlan', 'Update-PlanProgress', 'Receive-PlanRequest', 'Complete-Planning',
+            'Write-StepCardState', 'Update-Summary', 'Invoke-Guarded', 'Write-Result')
+        $text = foreach ($name in $wanted) {
+            $found = @($ast.FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+                    }, $true))
+            Assert-Equal 1 $found.Count "Expected one $name in the window script."
+            $found[0].Extent.Text
+        }
+        return [scriptblock]::Create($text -join [Environment]::NewLine)
+    }
+
+    It 'drains the queue and lights up Apply' {
+        . (Use-Planner)
+
+        $control = { [pscustomobject]@{ Text = ''; Value = 0; IsIndeterminate = $false; IsEnabled = $false } }
+        $ui = @{ ResultsBox = [pscustomobject]@{ Lines = '' }; ProgressBar = (& $control)
+            SummaryText = (& $control); PreviewButton = (& $control); ApplyButton = (& $control)
+        }
+        Add-Member -InputObject $ui.ResultsBox -MemberType ScriptMethod -Name AppendText -Value { param($t) $this.Lines += $t } -Force
+        Add-Member -InputObject $ui.ResultsBox -MemberType ScriptMethod -Name ScrollToEnd -Value { } -Force
+        function Set-StepCardState { param($Card, $Step, $Status, $Actions) }
+
+        $script:ModulePath = Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+        $script:Plans = @{}
+        $script:Cards = @{}
+        $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
+        $script:Worker = $null; $script:PlanJob = $null; $script:PlanToken = 0
+        $script:PlanQueue = $null; $script:PlanTotal = 0; $script:PlanDone = 0
+        $script:AsyncBroken = $false
+        $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
+        $script:PlanTimer = [pscustomobject]@{ Started = $false }
+        Add-Member -InputObject $script:PlanTimer -MemberType ScriptMethod -Name Start -Value { $this.Started = $true } -Force
+        Add-Member -InputObject $script:PlanTimer -MemberType ScriptMethod -Name Stop -Value { $this.Started = $false } -Force
+
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $script:Context = New-FakeContext -Root $root
+        $autoIds = @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)
+        foreach ($step in (Get-PtrSetupStep)) { $script:Cards[$step.Id] = @{} }
+        foreach ($id in $autoIds) { $null = $script:Selected.Add($id) }
+
+        Start-PlanRequest -StepId $autoIds
+
+        # Stand in for the dispatcher pumping the timer.
+        $spins = 0
+        while ($script:PlanTimer.Started -and $spins -lt 600) {
+            Start-Sleep -Milliseconds 20
+            Receive-PlanRequest
+            $spins++
+        }
+
+        Assert-True ($spins -lt 600) 'The queue never drained.'
+        foreach ($id in $autoIds) {
+            Assert-True ($script:Plans.ContainsKey($id)) "$id was left pending, so the summary would wait on it forever."
+        }
+        Assert-True ($ui.SummaryText.Text -notmatch 'Working out') "Left on: $($ui.SummaryText.Text)"
+        Assert-True $ui.ApplyButton.IsEnabled 'Apply should be usable once every selected step has a plan.'
+        Assert-True ($ui.ResultsBox.Lines -notmatch '\[fail\]') "The planner reported: $($ui.ResultsBox.Lines)"
     }
 }

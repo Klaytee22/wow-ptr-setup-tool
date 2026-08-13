@@ -87,6 +87,25 @@ function Get-ContextOption {
     return $Default
 }
 
+function Get-ContextCharacter {
+    <#
+    .SYNOPSIS
+        The character pairs on a context, as a list that is never $null.
+
+    .DESCRIPTION
+        Everything here runs under Set-StrictMode, where .Count on $null is a
+        terminating error rather than 0, and @($null).Count is 1 rather than 0 —
+        so a context whose mapping has been cleared reads as one character unless
+        the nulls are filtered out. Both traps are worth having in one place
+        instead of at every use.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [psobject] $Context)
+
+    if ($null -eq $Context.Character) { return @() }
+    return @($Context.Character | Where-Object { $null -ne $_ })
+}
+
 function Get-ContextAccountPath {
     [CmdletBinding()]
     param(
@@ -175,8 +194,9 @@ $script:PtrSetupSteps = @(
         -Status {
         param($Context)
         if ($Context.Acknowledged.Contains('copy_character')) { return New-PtrSetupStepStatus -State 'done' -Detail 'Marked done.' }
-        if ($Context.Character.Count -gt 0) {
-            return New-PtrSetupStepStatus -State 'done' -Detail "$($Context.Character.Count) character(s) mapped."
+        $mapped = @(Get-ContextCharacter -Context $Context).Count
+        if ($mapped -gt 0) {
+            return New-PtrSetupStepStatus -State 'done' -Detail "$mapped character(s) mapped."
         }
         return New-PtrSetupStepStatus -State 'ready' -Detail 'No PTR characters found yet.'
     }
@@ -243,7 +263,8 @@ $script:PtrSetupSteps = @(
         $text = ConvertTo-ConfigWtf -Settings $after
         $kind = if (Test-Path -LiteralPath $Context.Target.ConfigWtf) { 'overwrite' } else { 'create' }
         $note = (@($changes | Select-Object -First 6 | ForEach-Object { '{0}={1}' -f $_.Key, $_.After }) -join ', ')
-        if ($changes.Count -gt 6) { $note += ", +$($changes.Count - 6) more" }
+        $changeCount = @($changes).Count
+        if ($changeCount -gt 6) { $note += ", +$($changeCount - 6) more" }
 
         return @(New-FileAction -Kind $kind -Destination $Context.Target.ConfigWtf `
                 -Size ([System.Text.Encoding]::UTF8.GetByteCount($text)) -Note $note -Content $text)
@@ -289,7 +310,7 @@ $script:PtrSetupSteps = @(
         -Instructions 'Each row maps one live character onto one PTR character. Realm names differ between live and PTR (the PTR realm is usually something like "Classic PTR Realm 1"), so check the mapping before applying. Covers the character''s addon settings, addon list, frame layout, config-cache.wtf (camera distance, floating combat text), keybinds and macros.' `
         -Prerequisite {
         param($Context)
-        if ($Context.Character.Count -eq 0) { return 'Map at least one character first.' }
+        if (@(Get-ContextCharacter -Context $Context).Count -eq 0) { return 'Map at least one character first.' }
         return $null
     } `
         -Plan {
@@ -300,7 +321,7 @@ $script:PtrSetupSteps = @(
         if (Get-ContextOption -Context $Context -Name 'IncludeChatCache' -Default $false) { $names += 'chat-cache.txt' }
 
         $actions = [System.Collections.Generic.List[psobject]]::new()
-        foreach ($pair in $Context.Character) {
+        foreach ($pair in (Get-ContextCharacter -Context $Context)) {
             $sourceDir = Get-WowCharacterPath -Install $Context.Source -Character $pair.Source
             $targetDir = Get-WowCharacterPath -Install $Context.Target -Character $pair.Target
 

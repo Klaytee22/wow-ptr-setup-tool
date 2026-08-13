@@ -114,9 +114,17 @@ A superseded answer is dropped by comparing a token, cancellation is `BeginStop`
 than `Stop` so cancelling never blocks the thread it is protecting, and if a runspace
 cannot be had at all the window falls back to planning inline — slower, but working.
 
+**A step that cannot be worked out is recorded as an empty plan and reported**, never
+left pending. The queue moves on in a `finally`, because a step still waiting is far
+worse than a step got wrong: the summary waits on it, Apply stays disabled, and the
+window sits on *working out what needs copying* with no way forward. That is precisely
+how a single failing step used to present.
+
 `Ui.Tests.ps1` lifts the scriptblock the window sends to the worker out of the source and
 runs it in a real runspace, so a name the module does not export fails there rather than
-as a window that never finishes loading.
+as a window that never finishes loading. It also drives the whole queue by hand with the
+timer stubbed out, which is how the fail-safe above is checked: break one step on
+purpose and the other four still land.
 
 **Nothing waits on a plan that is only about counting.** Whether a step *can* run is a
 few `Test-Path` calls (`Get-PtrSetupStepBlocker`), so the tick boxes are live and
@@ -140,6 +148,18 @@ calling `New-FileAction`: binding parameters to an advanced function costs a fra
 a millisecond, which is nothing once and was about half the cost of planning a real
 `AddOns` folder. `New-FileAction` remains the way to make one anywhere that is not that
 loop, and a test holds the two shapes together property by property.
+
+## Strict mode and empty collections
+
+The module runs under `Set-StrictMode -Version Latest`, where `.Count` on `$null` is a
+terminating error rather than 0 — and `@($null).Count` is 1 rather than 0, so wrapping
+is not the fix it looks like. A context arriving from the window can have its character
+mapping cleared, so `Get-ContextCharacter` normalises it in one place and everything
+reads through that rather than repeating a subtle idiom at each use.
+
+This matters more than it sounds: a step that throws while being planned used to take
+the whole window with it, so an empty mapping presented as five identical failures and a
+list that never finished loading.
 
 ## Safety model
 

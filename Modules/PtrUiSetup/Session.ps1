@@ -44,7 +44,7 @@ function Set-PtrSetupCharacterGuess {
         [switch] $Force
     )
 
-    if ($Context.Character.Count -gt 0 -and -not $Force) { return $Context }
+    if (@(Get-ContextCharacter -Context $Context).Count -gt 0 -and -not $Force) { return $Context }
     if (-not $Context.Source -or -not $Context.Target -or -not $Context.SourceAccount -or -not $Context.TargetAccount) {
         return $Context
     }
@@ -159,7 +159,7 @@ function ConvertTo-PtrSetupSnapshot {
         SourceAccount = $Context.SourceAccount
         TargetAccount = $Context.TargetAccount
         # Characters travel as ids; the worker looks the folders up again.
-        Character     = @(foreach ($pair in $Context.Character) {
+        Character     = @(foreach ($pair in (Get-ContextCharacter -Context $Context)) {
                 @{ SourceId = $pair.Source.Id; TargetId = $pair.Target.Id }
             })
         Options       = $options

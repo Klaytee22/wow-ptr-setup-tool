@@ -245,7 +245,19 @@ function Invoke-Guarded {
     param([Parameter(Mandatory)] [scriptblock] $Body)
 
     try { & $Body }
-    catch { Write-Result "[fail] $($_.Exception.Message)" }
+    catch {
+        # With the location and the offending line, not just the message. Most of
+        # this file cannot be reached by the test suite, so when something does go
+        # wrong here the Results box is the only evidence anyone gets, and
+        # "the property 'Count' cannot be found" on its own names no suspect.
+        $where = $_.InvocationInfo
+        $at = if ($where -and $where.ScriptLineNumber) { " (line $($where.ScriptLineNumber))" } else { '' }
+        Write-Result "[fail]$at $($_.Exception.Message)"
+        if ($where -and $where.Line) {
+            $statement = $where.Line.Trim()
+            if ($statement) { Write-Result "       $statement" }
+        }
+    }
 }
 
 function Reset-Plan {
@@ -465,7 +477,10 @@ function Start-NextPlan {
     $null = $shell.AddScript({
             param($Snapshot, $StepId)
             $context = ConvertFrom-PtrSetupSnapshot -Snapshot $Snapshot
-            return , @(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $StepId) -Context $context)
+            # Written out one action at a time rather than as a wrapped array:
+            # the caller reads the whole output collection, so an empty plan is
+            # simply no output instead of something that has to be indexed into.
+            return @(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $StepId) -Context $context)
         })
     $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $script:Context))
     $null = $shell.AddArgument($stepId)
@@ -497,6 +512,13 @@ function Receive-PlanRequest {
     <#
     .SYNOPSIS
         Collect a finished step and move on to the next.
+
+    .DESCRIPTION
+        Whatever happens to one step, the queue moves on. A step that cannot be
+        worked out is recorded as an empty plan and reported, because leaving it
+        pending is far worse than getting it wrong: the summary waits on it, Apply
+        stays disabled, and the window sits on "working out what needs copying"
+        with no way forward.
     #>
     Clear-AbandonedRequest
     $job = $script:PlanJob
@@ -507,38 +529,49 @@ function Receive-PlanRequest {
     if (-not $job.Handle.IsCompleted) { return }
 
     $script:PlanTimer.Stop()
-    $plan = $null
-    $failure = $null
+    $stale = $false
     try {
-        $result = $job.Shell.EndInvoke($job.Handle)
-        $errors = @($job.Shell.Streams.Error)
-        if ($errors.Count) { $failure = [string]$errors[0] } else { $plan = @($result[0]) }
-    }
-    catch {
-        $failure = $_.Exception.Message
+        $plan = $null
+        $failure = $null
+        try {
+            $result = $job.Shell.EndInvoke($job.Handle)
+            $errors = @($job.Shell.Streams.Error)
+            if ($errors.Count) { $failure = [string]$errors[0] } else { $plan = @($result) }
+        }
+        catch {
+            $failure = $_.Exception.Message
+        }
+        finally {
+            try { $job.Shell.Dispose() } catch { <# nothing to dispose #> }
+            if ($script:PlanJob -and $script:PlanJob.Token -eq $job.Token) { $script:PlanJob = $null }
+        }
+
+        # A newer request has been sent since; this answer describes a selection
+        # the user has already moved on from, and the newer one drives the queue.
+        if ($job.Token -ne $script:PlanToken) {
+            $stale = $true
+            return
+        }
+
+        if ($failure) {
+            Write-Result "[fail] Could not work out $($job.StepId): $failure"
+        }
+        else {
+            $script:Plans[$job.StepId] = $plan
+        }
+        Write-StepCardState -StepId $job.StepId
     }
     finally {
-        try { $job.Shell.Dispose() } catch { <# nothing to dispose #> }
-        if ($script:PlanJob -and $script:PlanJob.Token -eq $job.Token) { $script:PlanJob = $null }
+        if (-not $stale) {
+            # Recorded either way, so nothing is left pending forever.
+            if (-not $script:Plans.ContainsKey($job.StepId)) { $script:Plans[$job.StepId] = @() }
+            $script:PlanDone++
+            Update-PlanProgress
+            # Keep the running total honest as each step lands.
+            Update-Summary
+            Start-NextPlan
+        }
     }
-
-    # A newer request has been sent since; this answer describes a selection the
-    # user has already moved on from.
-    if ($job.Token -ne $script:PlanToken) { return }
-
-    if ($failure) {
-        Write-Result "[fail] Could not work out $($job.StepId): $failure"
-        Complete-Planning
-        return
-    }
-
-    $script:Plans[$job.StepId] = $plan
-    Write-StepCardState -StepId $job.StepId
-    $script:PlanDone++
-    Update-PlanProgress
-    # Keep the running total honest as each step lands.
-    Update-Summary
-    Start-NextPlan
 }
 
 function Complete-Planning {

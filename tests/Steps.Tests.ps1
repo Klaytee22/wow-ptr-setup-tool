@@ -403,3 +403,54 @@ Describe 'Planning on another thread' {
         finally { $runspace.Dispose() }
     }
 }
+
+Describe 'A context with holes in it' {
+    <#
+        The module runs under Set-StrictMode -Version Latest, where .Count on
+        $null is a terminating error rather than 0. Anything that reaches a step
+        through the window can hand it a context whose collections have been
+        cleared, and a step that falls over on one takes the whole list with it —
+        which is exactly how it presented: five identical failures, no file
+        counts, and Apply stuck disabled.
+    #>
+
+    It 'plans, blocks and reports status without throwing on empty collections' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $full = New-FakeContext -Root $root
+
+        # Every shape a context's collections can arrive in.
+        $shapes = @(
+            @{ Name = 'no characters'; Character = @() }
+            @{ Name = 'null characters'; Character = $null }
+            @{ Name = 'one character'; Character = $full.Character }
+        )
+
+        foreach ($shape in $shapes) {
+            $context = New-PtrSetupContext -Source $full.Source -Target $full.Target `
+                -SourceAccount $full.SourceAccount -TargetAccount $full.TargetAccount
+            $context.Character = $shape.Character
+
+            foreach ($step in (Get-PtrSetupStep)) {
+                # None of these may throw, whatever the context looks like.
+                $null = Get-PtrSetupStepBlocker -Step $step -Context $context
+                $null = Get-PtrSetupStepStatus -Step $step -Context $context
+                $null = @(New-PtrSetupStepPlan -Step $step -Context $context)
+            }
+
+            $null = Set-PtrSetupCharacterGuess -Context $context
+            $null = ConvertTo-PtrSetupSnapshot -Context $context
+        }
+    }
+
+    It 'reports the character count from a context that never had one set' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $full = New-FakeContext -Root $root
+        $context = New-PtrSetupContext -Source $full.Source -Target $full.Target `
+            -SourceAccount $full.SourceAccount -TargetAccount $full.TargetAccount
+        $context.Character = $null
+
+        Assert-Equal 'ready' (Get-PtrSetupStepStatus -Step (Get-PtrSetupStep -Id 'copy_character') -Context $context).State
+        Assert-Equal 'Map at least one character first.' `
+        (Get-PtrSetupStepBlocker -Step (Get-PtrSetupStep -Id 'copy_character_data') -Context $context)
+    }
+}

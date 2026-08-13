@@ -64,6 +64,7 @@ Export-ModuleMember -Function @(
     'Test-ContextReady'
     'Get-ContextOption'
     'Get-ContextAccountPath'
+    'Get-ContextCharacter'
     'Get-PtrSetupStep'
     'Get-PtrSetupStepStatus'
     'Get-PtrSetupStepBlocker'
