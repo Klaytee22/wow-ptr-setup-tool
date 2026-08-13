@@ -80,4 +80,6 @@ Export-ModuleMember -Function @(
     'Set-PtrSetupAccount'
     'Set-PtrSetupAccountGuess'
     'Set-PtrSetupCharacterGuess'
+    'ConvertTo-PtrSetupSnapshot'
+    'ConvertFrom-PtrSetupSnapshot'
 )

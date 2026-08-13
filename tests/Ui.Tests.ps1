@@ -431,3 +431,150 @@ Describe 'Keeping cached plans honest' {
         }
     }
 }
+
+Describe 'The background planner' {
+    <#
+        The timer and the dispatcher cannot be exercised off Windows, but the
+        part that does the work can: the scriptblock the window sends to the
+        worker is lifted out of the source and run in a real runspace, so a name
+        the module does not export, or a typo, fails here rather than on someone's
+        machine as a window that never finishes loading.
+    #>
+
+    function Get-WorkerScript {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $start = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Start-NextPlan'
+                }, $true))
+        Assert-Equal 1 $start.Count 'Expected one Start-NextPlan.'
+
+        $added = @($start[0].FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Value -eq 'AddScript'
+                }, $true))
+        Assert-Equal 1 $added.Count 'Expected exactly one scriptblock to be sent to the worker.'
+        return $added[0].Arguments[0].ScriptBlock.GetScriptBlock()
+    }
+
+    It 'sends a script that plans the same as planning here' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $stepIds = @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)
+
+        $expected = @{}
+        foreach ($id in $stepIds) {
+            $expected[$id] = (@(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $id) -Context $context) |
+                    ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
+        }
+
+        $modulePath = Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.ThreadOptions = 'ReuseThread'
+        $runspace.Open()
+        try {
+            # The window imports the module into the runspace once, then reuses it.
+            $loader = [powershell]::Create()
+            $loader.Runspace = $runspace
+            $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument($modulePath)
+            $null = $loader.Invoke()
+            Assert-Equal 0 @($loader.Streams.Error).Count "The worker could not load the module: $($loader.Streams.Error)"
+            $loader.Dispose()
+
+            $worker = Get-WorkerScript
+            foreach ($id in $stepIds) {
+                $shell = [powershell]::Create()
+                $shell.Runspace = $runspace
+                $null = $shell.AddScript($worker)
+                $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $context))
+                $null = $shell.AddArgument($id)
+
+                # The window polls this handle from a timer; here it is awaited.
+                $handle = $shell.BeginInvoke()
+                $result = $shell.EndInvoke($handle)
+                Assert-Equal 0 @($shell.Streams.Error).Count "The worker reported: $($shell.Streams.Error)"
+
+                $text = (@($result[0]) | ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
+                $shell.Dispose()
+                Assert-Equal $expected[$id] $text "$id planned differently on the worker."
+            }
+        }
+        finally { $runspace.Dispose() }
+    }
+
+    It 'still plans when a worker cannot be had' {
+        # A machine that will not give out runspaces should get a slow window,
+        # not a broken one.
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -match '\$script:AsyncBroken = \$true') 'A failed worker must be remembered, not retried forever.'
+
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $start = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Start-NextPlan'
+                }, $true))[0]
+        Assert-True ($start.Body.Extent.Text -match 'New-PtrSetupStepPlan') `
+            'Start-NextPlan needs a synchronous path for when there is no worker.'
+    }
+
+    It 'ignores an answer to a question the user has moved on from' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $receive = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Receive-PlanRequest'
+                }, $true))
+        Assert-Equal 1 $receive.Count
+        Assert-True ($receive[0].Body.Extent.Text -match '\$job\.Token -ne \$script:PlanToken') `
+            'Results must be checked against the current token, or a slow answer overwrites a newer one.'
+    }
+}
+
+Describe 'The step cards' {
+
+    It 'does not quote the guide at the user' {
+        # The card says what the step does; where the instruction came from is
+        # documentation, not something to read while using the tool.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $newCard = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-StepCard'
+                }, $true))
+        Assert-Equal 1 $newCard.Count
+        Assert-True ($newCard[0].Body.Extent.Text -notmatch 'SourceNote') `
+            'SourceNote is the citation back to the written guide and does not belong on a card.'
+
+        # It still exists on the step itself, for -ListSteps and the docs.
+        foreach ($step in (Get-PtrSetupStep)) {
+            Assert-True ([bool]$step.SourceNote) "$($step.Id) lost its SourceNote; the docs rely on it."
+        }
+    }
+
+    It 'lets a step be ticked before its file count is known' {
+        # Ticking chooses whether to run a step. Making that wait on a folder
+        # walk is what made the tick boxes look broken.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $newCard = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-StepCard'
+                }, $true))[0]
+
+        Assert-True ($newCard.Body.Extent.Text -notmatch '\$check\.IsEnabled = \$false') `
+            'A card must not start with its tick box switched off.'
+        Assert-True ($newCard.Body.Extent.Text -match '\$check\.IsChecked = \$script:Selected\.Contains') `
+            'A card should show what is already selected as soon as it is drawn.'
+    }
+
+    It 'asks for the cheap steps first' {
+        # copy_addons is much the slowest; leaving it last means everything else
+        # is answered while it is still going.
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        $match = [regex]::Match($text, "\`$order = @\(([^)]+)\)", 'Singleline')
+        Assert-True $match.Success 'Expected an explicit planning order.'
+        $order = @([regex]::Matches($match.Groups[1].Value, "'([a-z_]+)'") | ForEach-Object { $_.Groups[1].Value })
+
+        Assert-Equal 'copy_addons' $order[-1] 'The addon folder should be planned last.'
+        foreach ($stepId in @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)) {
+            Assert-True ($order -contains $stepId) "$stepId is missing from the planning order, so it would sort first by accident."
+        }
+    }
+}

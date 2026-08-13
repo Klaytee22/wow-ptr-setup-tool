@@ -298,3 +298,108 @@ Describe 'Reusing a plan' {
         Assert-Equal 'done' (Get-PtrSetupStepStatus -Step $step -Context $context -Action @()).State
     }
 }
+
+# Resolved here rather than inside an It: $MyInvocation.MyCommand.Path is null
+# inside a scriptblock, and the worker needs a real path to import.
+$script:WorkerModulePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+
+Describe 'Planning on another thread' {
+    <#
+        The window plans on a background runspace so the UI stays responsive. It
+        cannot hand the live context over — two threads reading and writing the
+        same hashtables is how a GUI starts producing nonsense — so it sends a
+        snapshot of plain values and the worker rebuilds its own context. That is
+        only sound while the rebuilt context plans identically.
+    #>
+
+    function Get-PlanText {
+        param($Context)
+        $out = [ordered]@{}
+        foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+            $out[$step.Id] = (@(New-PtrSetupStepPlan -Step $step -Context $Context) |
+                    ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
+        }
+        return $out
+    }
+
+    It 'plans the same from a rebuilt snapshot as from the context itself' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $context.Options['IncludeChatCache'] = $true
+        $null = $context.Acknowledged.Add('verify_in_game')
+
+        $rebuilt = ConvertFrom-PtrSetupSnapshot -Snapshot (ConvertTo-PtrSetupSnapshot -Context $context)
+
+        Assert-Equal $context.Source.Path $rebuilt.Source.Path
+        Assert-Equal $context.Target.Path $rebuilt.Target.Path
+        Assert-Equal $context.SourceAccount $rebuilt.SourceAccount
+        Assert-Equal $context.TargetAccount $rebuilt.TargetAccount
+        Assert-Equal $context.Character.Count $rebuilt.Character.Count
+        Assert-Equal $context.Character[0].Source.Id $rebuilt.Character[0].Source.Id
+        Assert-Equal $context.Character[0].Target.Id $rebuilt.Character[0].Target.Id
+        Assert-True $rebuilt.Options['IncludeChatCache'] 'Options must survive the trip.'
+        Assert-True ($rebuilt.Acknowledged.Contains('verify_in_game')) 'Ticked manual steps must survive too.'
+
+        $expected = Get-PlanText $context
+        $actual = Get-PlanText $rebuilt
+        foreach ($stepId in $expected.Keys) {
+            Assert-Equal $expected[$stepId] $actual[$stepId] "$stepId planned differently after a round trip."
+        }
+    }
+
+    It 'survives a snapshot with nothing selected' {
+        $rebuilt = ConvertFrom-PtrSetupSnapshot -Snapshot (ConvertTo-PtrSetupSnapshot -Context (New-PtrSetupContext))
+        Assert-True (-not (Test-ContextReady -Context $rebuilt))
+        Assert-Equal 0 @(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id 'copy_addons') -Context $rebuilt).Count
+    }
+
+    It 'drops a character that has gone since the snapshot was taken' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $snapshot = ConvertTo-PtrSetupSnapshot -Context $context
+        Assert-Equal 1 @($snapshot.Character).Count
+
+        Remove-Item -LiteralPath (Get-WowCharacterPath -Install $context.Target -Character $context.Character[0].Target) -Recurse -Force
+        $rebuilt = ConvertFrom-PtrSetupSnapshot -Snapshot $snapshot
+        Assert-Equal 0 $rebuilt.Character.Count 'A character that is no longer there must not be rebuilt.'
+    }
+
+    It 'produces the same plan inside a real background runspace' {
+        # The thing the window actually does, minus the window.
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $expected = Get-PlanText $context
+
+        $modulePath = $script:WorkerModulePath
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.Open()
+        try {
+            $worker = [powershell]::Create()
+            $worker.Runspace = $runspace
+            $null = $worker.AddScript({
+                    param($ModulePath, $Snapshot, $StepId)
+                    Import-Module $ModulePath -Force
+                    $context = ConvertFrom-PtrSetupSnapshot -Snapshot $Snapshot
+                    $out = @{}
+                    foreach ($id in $StepId) {
+                        $out[$id] = @(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $id) -Context $context)
+                    }
+                    return $out
+                })
+            $null = $worker.AddArgument($modulePath)
+            $null = $worker.AddArgument((ConvertTo-PtrSetupSnapshot -Context $context))
+            $null = $worker.AddArgument(@($expected.Keys))
+
+            $result = $worker.Invoke()
+            Assert-Equal 0 $worker.Streams.Error.Count "The worker reported: $($worker.Streams.Error)"
+            $plans = $result[0]
+            $worker.Dispose()
+
+            foreach ($stepId in $expected.Keys) {
+                $text = (@($plans[$stepId]) | ForEach-Object { '{0}|{1}|{2}' -f $_.Kind, $_.Destination, $_.Content }) -join "`n"
+                Assert-Equal $expected[$stepId] $text "$stepId planned differently on the worker thread."
+            }
+        }
+        finally { $runspace.Dispose() }
+    }
+}

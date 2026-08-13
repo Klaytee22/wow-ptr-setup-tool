@@ -101,8 +101,21 @@ $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
 # AddOns tree, and the status, the file list and the summary all want the same
 # answer, so it is worked out once per refresh and read three times.
 $script:Plans = @{}
-$script:Refreshing = $false
-$script:RefreshAgain = $false
+# The cards currently on screen, so an answer arriving later knows where to go.
+$script:Cards = @{}
+$script:ModulePath = Join-Path $PSScriptRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+$script:Worker = $null
+$script:PlanJob = $null
+$script:PlanTimer = $null
+$script:PlanToken = 0
+$script:PlanQueue = $null
+$script:PlanTotal = 0
+$script:PlanDone = 0
+$script:RunIndex = 0
+$script:RunTotal = 0
+$script:AsyncBroken = $false
+# Workers told to stop, kept until they have and can be disposed.
+$script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
 
 # Which steps have to be re-planned when something changes. Picking a character
 # cannot alter what the addon copy would do, and re-walking a 30,000-file AddOns
@@ -310,6 +323,237 @@ function Set-WowFolder {
 }
 
 # --------------------------------------------------------------------------
+# Planning off the UI thread
+# --------------------------------------------------------------------------
+#
+# Working out a step's plan walks the whole AddOns folder, which on a real
+# install is seconds. Done on the UI thread that is seconds of a frozen window,
+# so it happens on a background runspace instead and the answers are collected
+# by a timer ticking on the UI thread. Nothing touches WPF except that timer and
+# the ordinary event handlers, and the worker never sees a live context — only a
+# snapshot of plain values it rebuilds for itself.
+
+function Get-PlanWorker {
+    <#
+    .SYNOPSIS
+        The background runspace, opened and loaded on first use.
+
+    .DESCRIPTION
+        Returns $null if a runspace cannot be had, which puts the window back on
+        the synchronous path rather than leaving it unable to plan at all.
+    #>
+    if ($script:AsyncBroken) { return $null }
+    if ($script:Worker -and $script:Worker.RunspaceStateInfo.State -eq 'Opened') { return $script:Worker }
+
+    try {
+        $runspace = [runspacefactory]::CreateRunspace()
+        # Left in the default apartment on purpose: the worker only reads files,
+        # and asking for STA is one more thing that can fail for no benefit.
+        $runspace.ThreadOptions = 'ReuseThread'
+        $runspace.Open()
+
+        # Import once, here, rather than on every request.
+        $loader = [powershell]::Create()
+        $loader.Runspace = $runspace
+        $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument($script:ModulePath)
+        $null = $loader.Invoke()
+        $failed = @($loader.Streams.Error)
+        $loader.Dispose()
+        if ($failed.Count) { throw "the worker could not load the module: $($failed[0])" }
+
+        $script:Worker = $runspace
+        return $script:Worker
+    }
+    catch {
+        $script:AsyncBroken = $true
+        Write-Result "[note] Planning in the background is unavailable ($($_.Exception.Message)); the window will do it directly and may pause."
+        return $null
+    }
+}
+
+function Stop-PlanRequest {
+    <#
+    .SYNOPSIS
+        Abandon whatever is in flight, so a new selection is not queued behind it.
+
+    .DESCRIPTION
+        BeginStop rather than Stop: Stop waits for the pipeline to notice, and a
+        worker part way through a large folder can take a moment. Waiting for it
+        on the UI thread would put back exactly the pause this is here to avoid.
+        The stopped shell is disposed later, once it has actually finished.
+    #>
+    if ($script:PlanTimer) { $script:PlanTimer.Stop() }
+    if (-not $script:PlanJob) { return }
+
+    $shell = $script:PlanJob.Shell
+    $script:PlanJob = $null
+    try {
+        $null = $shell.BeginStop($null, $null)
+        $script:Abandoned.Add($shell)
+    }
+    catch {
+        try { $shell.Dispose() } catch { <# nothing to dispose #> }
+    }
+}
+
+function Clear-AbandonedRequest {
+    <#
+    .SYNOPSIS
+        Dispose stopped workers once they have come to rest.
+    #>
+    if (-not $script:Abandoned.Count) { return }
+
+    $stillGoing = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($shell in $script:Abandoned) {
+        $state = try { $shell.InvocationStateInfo.State } catch { 'Completed' }
+        if ($state -in @('Running', 'Stopping')) {
+            $stillGoing.Add($shell)
+            continue
+        }
+        try { $shell.Dispose() } catch { <# already gone #> }
+    }
+    $script:Abandoned = $stillGoing
+}
+
+function Start-PlanRequest {
+    <#
+    .SYNOPSIS
+        Plan -StepId in the background, one step at a time, and return at once.
+
+    .DESCRIPTION
+        A step per request rather than all of them in one: each answer fills its
+        own card as it arrives, so the list populates in front of the user
+        instead of sitting on "checking" until the slowest one is done. The extra
+        round trips cost nothing next to walking a folder.
+    #>
+    param([Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $StepId)
+
+    Stop-PlanRequest
+    $script:PlanQueue = [System.Collections.Generic.Queue[string]]::new()
+    foreach ($id in @($StepId)) { $script:PlanQueue.Enqueue($id) }
+    $script:PlanTotal = $script:PlanQueue.Count
+    $script:PlanDone = 0
+    Start-NextPlan
+}
+
+function Start-NextPlan {
+    <#
+    .SYNOPSIS
+        Send the next step to the worker, or finish if there are none left.
+    #>
+    if (-not $script:PlanQueue -or -not $script:PlanQueue.Count) {
+        Complete-Planning
+        return
+    }
+
+    $stepId = $script:PlanQueue.Dequeue()
+    $runspace = Get-PlanWorker
+    if (-not $runspace) {
+        # No worker to be had: plan here, exactly as the window used to, and keep
+        # going down the queue.
+        $script:Plans[$stepId] = @(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $stepId) -Context $script:Context)
+        Write-StepCardState -StepId $stepId
+        $script:PlanDone++
+        Update-PlanProgress
+        Start-NextPlan
+        return
+    }
+
+    $script:PlanToken++
+    $shell = [powershell]::Create()
+    $shell.Runspace = $runspace
+    $null = $shell.AddScript({
+            param($Snapshot, $StepId)
+            $context = ConvertFrom-PtrSetupSnapshot -Snapshot $Snapshot
+            return , @(New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $StepId) -Context $context)
+        })
+    $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $script:Context))
+    $null = $shell.AddArgument($stepId)
+
+    $script:PlanJob = [pscustomobject]@{
+        Shell  = $shell
+        Handle = $shell.BeginInvoke()
+        Token  = $script:PlanToken
+        StepId = $stepId
+    }
+
+    if (-not $script:PlanTimer) {
+        $script:PlanTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:PlanTimer.Interval = [TimeSpan]::FromMilliseconds(60)
+        # Ticks on the UI thread, so this is the one place a worker's answer
+        # meets WPF.
+        $script:PlanTimer.Add_Tick({ Invoke-Guarded { Receive-PlanRequest } })
+    }
+    $script:PlanTimer.Start()
+}
+
+function Update-PlanProgress {
+    if ($script:PlanTotal -gt 0) {
+        $ui.ProgressBar.Value = (100 * $script:PlanDone / $script:PlanTotal)
+    }
+}
+
+function Receive-PlanRequest {
+    <#
+    .SYNOPSIS
+        Collect a finished step and move on to the next.
+    #>
+    Clear-AbandonedRequest
+    $job = $script:PlanJob
+    if (-not $job) {
+        $script:PlanTimer.Stop()
+        return
+    }
+    if (-not $job.Handle.IsCompleted) { return }
+
+    $script:PlanTimer.Stop()
+    $plan = $null
+    $failure = $null
+    try {
+        $result = $job.Shell.EndInvoke($job.Handle)
+        $errors = @($job.Shell.Streams.Error)
+        if ($errors.Count) { $failure = [string]$errors[0] } else { $plan = @($result[0]) }
+    }
+    catch {
+        $failure = $_.Exception.Message
+    }
+    finally {
+        try { $job.Shell.Dispose() } catch { <# nothing to dispose #> }
+        if ($script:PlanJob -and $script:PlanJob.Token -eq $job.Token) { $script:PlanJob = $null }
+    }
+
+    # A newer request has been sent since; this answer describes a selection the
+    # user has already moved on from.
+    if ($job.Token -ne $script:PlanToken) { return }
+
+    if ($failure) {
+        Write-Result "[fail] Could not work out $($job.StepId): $failure"
+        Complete-Planning
+        return
+    }
+
+    $script:Plans[$job.StepId] = $plan
+    Write-StepCardState -StepId $job.StepId
+    $script:PlanDone++
+    Update-PlanProgress
+    # Keep the running total honest as each step lands.
+    Update-Summary
+    Start-NextPlan
+}
+
+function Complete-Planning {
+    <#
+    .SYNOPSIS
+        Everything asked for has arrived: total it up and let the user press Apply.
+    #>
+    $ui.ProgressBar.Value = 0
+    # Pre-ticking only applies to the very first list the user is shown; from
+    # here on their ticks are theirs.
+    $script:SelectedTouched = $true
+    Update-Summary
+}
+
+# --------------------------------------------------------------------------
 # Rendering
 # --------------------------------------------------------------------------
 
@@ -467,67 +711,63 @@ function Sync-CharacterMap {
 function Update-Steps {
     <#
     .SYNOPSIS
-        Render the step list, filling in the expensive parts as they arrive.
+        Draw the step list, and ask the worker for anything not already planned.
 
     .DESCRIPTION
-        Every card is on screen before any planning starts, then the plans land
-        one at a time with the window pumping between them. Working a plan out
-        walks the whole AddOns tree, so doing all nine first would lock the
-        window for as long as that takes and the user would be looking at
-        nothing. Cached plans are reused, so most changes fill in instantly.
+        Returns as soon as the cards are on screen. Steps whose plans are still
+        cached are filled in straight away; the rest are handed to the background
+        runspace and filled in when the answers come back, so no selection ever
+        waits on a folder scan.
     #>
-
-    # Pumping the dispatcher below lets clicks through mid-render. Rather than
-    # blocking them, note that another pass is needed and run it after this one.
-    if ($script:Refreshing) {
-        $script:RefreshAgain = $true
-        return
-    }
-    $script:Refreshing = $true
-    try {
-        do {
-            $script:RefreshAgain = $false
-            Write-StepCard
-        } while ($script:RefreshAgain)
-    }
-    finally {
-        $script:Refreshing = $false
-        $ui.ProgressBar.Value = 0
-    }
-}
-
-function Write-StepCard {
     $ui.StepsPanel.Children.Clear()
+    $script:Cards = @{}
 
-    # Pass one: every card on screen straight away. Nothing here touches disk.
-    $cards = [ordered]@{}
     foreach ($step in (Get-PtrSetupStep)) {
-        $card = New-StepCard -Step $step
-        $cards[$step.Id] = $card
+        # Whether a step can run at all is a handful of Test-Path calls, so it is
+        # settled now rather than after its plan arrives. Waiting would leave
+        # every tick box dead until the slowest folder had been walked, which
+        # reads as a window that does not work.
+        $blocker = if ($step.Mode -eq 'auto') { Get-PtrSetupStepBlocker -Step $step -Context $script:Context } else { $null }
+        if (-not $script:SelectedTouched -and $step.Mode -eq 'auto' -and -not $blocker) {
+            $null = $script:Selected.Add($step.Id)
+        }
+
+        $card = New-StepCard -Step $step -Blocked ([bool]$blocker)
+        $script:Cards[$step.Id] = $card
         $null = $ui.StepsPanel.Children.Add($card.Card)
     }
-    Update-UiNow
 
-    # Pass two: the part that costs something, one step at a time.
-    $total = @(Get-PtrSetupStep).Count
-    $done = 0
+    $pending = [System.Collections.Generic.List[string]]::new()
     foreach ($step in (Get-PtrSetupStep)) {
-        $cached = $script:Plans.ContainsKey($step.Id)
-        $actions = if ($cached) { @($script:Plans[$step.Id]) }
-        else { @(New-PtrSetupStepPlan -Step $step -Context $script:Context) }
-        $script:Plans[$step.Id] = $actions
-
-        $status = Get-PtrSetupStepStatus -Step $step -Context $script:Context -Action $actions
-        Set-StepCardState -Card $cards[$step.Id] -Step $step -Status $status -Actions $actions
-
-        $done++
-        $ui.ProgressBar.Value = (100 * $done / $total)
-        # Only worth yielding when something was actually computed.
-        if (-not $cached) { Update-UiNow }
-        if ($script:RefreshAgain) { return }
+        # Manual steps and anything already planned need no worker.
+        if ($step.Mode -ne 'auto' -or $script:Plans.ContainsKey($step.Id)) {
+            if ($step.Mode -ne 'auto') { $script:Plans[$step.Id] = @() }
+            Write-StepCardState -StepId $step.Id
+            continue
+        }
+        $pending.Add($step.Id)
     }
 
-    $script:SelectedTouched = $true
+    # Cheapest first, so the single-file steps answer immediately and the addon
+    # folder — much the slowest — is the one left filling in.
+    $order = @('copy_config_wtf', 'allow_out_of_date_addons', 'copy_character_data',
+        'copy_account_saved_variables', 'copy_addons')
+    $queued = @($pending | Sort-Object { $order.IndexOf($_) })
+    Start-PlanRequest -StepId $queued
+}
+
+function Write-StepCardState {
+    <#
+    .SYNOPSIS
+        Fill in one card from the plan now sitting in the cache.
+    #>
+    param([Parameter(Mandatory)] [string] $StepId)
+
+    if (-not $script:Cards.ContainsKey($StepId)) { return }
+    $step = Get-PtrSetupStep -Id $StepId
+    $actions = @($script:Plans[$StepId])
+    $status = Get-PtrSetupStepStatus -Step $step -Context $script:Context -Action $actions
+    Set-StepCardState -Card $script:Cards[$StepId] -Step $step -Status $status -Actions $actions
 }
 
 function New-StepCard {
@@ -535,7 +775,10 @@ function New-StepCard {
     .SYNOPSIS
         A step card with the cheap parts filled in and slots for the rest.
     #>
-    param([Parameter(Mandatory)] $Step)
+    param(
+        [Parameter(Mandatory)] $Step,
+        [switch] $Blocked
+    )
 
     $card = New-Object System.Windows.Controls.Border
     $card.Background = Get-Brush '#222634'
@@ -555,9 +798,11 @@ function New-StepCard {
     $check.Margin = New-Object System.Windows.Thickness 0, 2, 10, 0
     $check.VerticalAlignment = 'Top'
     $check.Tag = $Step
-    # Disabled until its plan lands and says whether it can run.
-    $check.IsEnabled = $false
     if ($Step.Mode -eq 'auto') {
+        # Live straight away: ticking a step is choosing to run it, which has
+        # nothing to do with knowing yet how many files that will be.
+        $check.IsEnabled = (-not $Blocked)
+        $check.IsChecked = $script:Selected.Contains($Step.Id)
         $check.ToolTip = 'Include this step when you press Apply'
         $check.Add_Click({
                 param($sender, $e)
@@ -570,6 +815,7 @@ function New-StepCard {
             })
     }
     else {
+        $check.IsEnabled = $true
         $check.ToolTip = 'Mark this manual step as done'
         $check.Add_Click({
                 param($sender, $e)
@@ -597,10 +843,19 @@ function New-StepCard {
                 -Margin (New-Object System.Windows.Thickness 0, 3, 0, 0)))
 
     $detail = New-TextBlockControl -Text '' -Colour '#98A0B3' -Size 12
-    $detail.Visibility = 'Collapsed'
+    if ($Step.Mode -eq 'auto') {
+        $detail.Text = 'Working out what will change…'
+        $detail.Visibility = 'Visible'
+    }
+    else {
+        $detail.Visibility = 'Collapsed'
+    }
     $null = $body.Children.Add($detail)
 
-    if ($Step.Instructions) {
+    # Only the hand-held steps get their instructions on the card. An automated
+    # one is described by what it does and the file list underneath it; a
+    # paragraph explaining where the idea came from is for the docs.
+    if ($Step.Mode -eq 'manual' -and $Step.Instructions) {
         $null = $body.Children.Add((New-TextBlockControl -Text $Step.Instructions -Size 12.5 `
                     -Margin (New-Object System.Windows.Thickness 0, 6, 0, 0)))
     }
@@ -608,13 +863,6 @@ function New-StepCard {
     # Where the file list goes once there is one.
     $slot = New-Object System.Windows.Controls.StackPanel
     $null = $body.Children.Add($slot)
-
-    if ($Step.SourceNote) {
-        $note = New-TextBlockControl -Text $Step.SourceNote -Colour '#6E768C' -Size 11 `
-            -Margin (New-Object System.Windows.Thickness 0, 8, 0, 0)
-        $note.FontStyle = 'Italic'
-        $null = $body.Children.Add($note)
-    }
 
     $null = $grid.Children.Add($body)
     $card.Child = $grid
@@ -645,20 +893,15 @@ function Set-StepCardState {
     # they were considered, but not in the counts of what will change.
     $changing = @($actions | Where-Object { $_.Kind -ne 'skip' })
 
-    # First render pre-ticks every automated step that has work to do.
-    if (-not $script:SelectedTouched -and $Step.Mode -eq 'auto' -and $Status.State -ne 'blocked') {
-        $null = $script:Selected.Add($Step.Id)
-    }
-
     $Card.Card.BorderBrush = Get-Brush $(if ($Status.State -eq 'done') { '#33613F' } else { '#2F3546' })
 
     if ($Step.Mode -eq 'auto') {
-        $Card.Check.IsChecked = $script:Selected.Contains($Step.Id)
+        # Whether it is ticked is the user's business by now; only its being
+        # runnable can have changed.
         $Card.Check.IsEnabled = ($Status.State -ne 'blocked')
     }
     else {
         $Card.Check.IsChecked = ($Status.State -eq 'done')
-        $Card.Check.IsEnabled = $true
     }
 
     # Swap the placeholder pill for the real one.
@@ -669,6 +912,10 @@ function Set-StepCardState {
     if ($Status.Detail) {
         $Card.Detail.Text = $Status.Detail
         $Card.Detail.Visibility = 'Visible'
+    }
+    else {
+        # Otherwise the "working out what will change" placeholder would stay up.
+        $Card.Detail.Visibility = 'Collapsed'
     }
 
     $Card.Slot.Children.Clear()
@@ -728,20 +975,25 @@ function New-FileListBox {
 function Update-Summary {
     $files = 0
     $bytes = [long]0
+    # Never plans anything itself: this runs while the worker is still going, and
+    # a synchronous plan here would put the pause back that the worker removes.
+    $waiting = $false
     foreach ($step in (Get-PtrSetupStep)) {
         if (-not $script:Selected.Contains($step.Id)) { continue }
-        # Update-Steps always runs first and leaves the plan here.
-        $planned = if ($script:Plans.ContainsKey($step.Id)) { $script:Plans[$step.Id] }
-        else { @(New-PtrSetupStepPlan -Step $step -Context $script:Context) }
-        $actions = @($planned | Where-Object { $_.Kind -ne 'skip' })
+        if (-not $script:Plans.ContainsKey($step.Id)) { $waiting = $true; continue }
+        $actions = @($script:Plans[$step.Id] | Where-Object { $_.Kind -ne 'skip' })
         $files += $actions.Count
         $bytes += ([long](($actions | Measure-Object -Property Size -Sum).Sum))
     }
 
     $ready = Test-ContextReady -Context $script:Context
-    $ui.PreviewButton.IsEnabled = ($ready -and $files -gt 0)
-    $ui.ApplyButton.IsEnabled = ($ready -and $files -gt 0)
-    $ui.SummaryText.Text = if (-not $ready) {
+    # Applying half a plan would copy less than the window is showing.
+    $ui.PreviewButton.IsEnabled = ($ready -and -not $waiting -and $files -gt 0)
+    $ui.ApplyButton.IsEnabled = ($ready -and -not $waiting -and $files -gt 0)
+    $ui.SummaryText.Text = if ($waiting) {
+        'Working out what needs copying…'
+    }
+    elseif (-not $ready) {
         'Pick a live client and a PTR client to begin.'
     }
     elseif (-not $script:Selected.Count) {
@@ -840,7 +1092,8 @@ function Invoke-Run {
     if (-not $stepIds) { return }
 
     if (-not $PreviewOnly) {
-        $planned = @(foreach ($id in $stepIds) { New-PtrSetupStepPlan -Step (Get-PtrSetupStep -Id $id) -Context $script:Context })
+        # Already worked out; Apply is only enabled once every selected step has a plan.
+        $planned = @(foreach ($id in $stepIds) { $script:Plans[$id] })
         $deletes = @($planned | Where-Object { $_.Kind -eq 'delete' }).Count
         $message = "Apply $($stepIds.Count) step(s) to $($script:Context.Target.Path)?"
         if ($deletes) { $message += "`n`n$deletes file(s) will be REMOVED from the PTR folder." }
@@ -861,14 +1114,26 @@ function Invoke-Run {
     $ui.ProgressBar.Value = 0
     Write-Result $(if ($PreviewOnly) { '--- Preview (nothing is written) ---' } else { '--- Applying ---' })
 
+    # One bar across the whole run rather than one per step: ticking five steps
+    # and watching the bar restart five times tells you nothing about how far in
+    # you are. Each step gets its own share of the width.
+    $script:RunIndex = 0
+    $script:RunTotal = $stepIds.Count
     try {
         foreach ($stepId in $stepIds) {
             $step = Get-PtrSetupStep -Id $stepId
+            $ui.SummaryText.Text = "Step $($script:RunIndex + 1) of $($script:RunTotal): $($step.Title)"
+            Update-UiNow
+
             $result = Invoke-PtrSetupStep -Step $step -Context $script:Context -PreviewOnly:$PreviewOnly -OnProgress {
                 param($Done, $Total)
-                $ui.ProgressBar.Value = [math]::Min(100, ($Done / [math]::Max(1, $Total)) * 100)
+                $withinStep = $Done / [math]::Max(1, $Total)
+                $ui.ProgressBar.Value = [math]::Min(100, 100 * ($script:RunIndex + $withinStep) / $script:RunTotal)
                 Update-UiNow
             }
+            $script:RunIndex++
+            $ui.ProgressBar.Value = [math]::Min(100, 100 * $script:RunIndex / $script:RunTotal)
+
             $mark = if ($result.Ok) { '[ok]  ' } else { '[fail]' }
             Write-Result "$mark $($step.Title) — $($result.Message)"
             Update-UiNow
@@ -1043,6 +1308,18 @@ $window.Add_ContentRendered({
                 $ui.ProgressBar.IsIndeterminate = $false
             }
             Invoke-Rescan
+        }
+    })
+
+$window.Add_Closed({
+        # The worker holds a thread; without this the console lingers after the
+        # window has gone.
+        Stop-PlanRequest
+        Clear-AbandonedRequest
+        if ($script:Worker) {
+            try { $script:Worker.Close() } catch { <# already gone #> }
+            try { $script:Worker.Dispose() } catch { <# already gone #> }
+            $script:Worker = $null
         }
     })
 

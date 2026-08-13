@@ -131,3 +131,83 @@ function Set-PtrSetupAccount {
     $Context.Character = @()
     return Set-PtrSetupCharacterGuess -Context $Context
 }
+
+function ConvertTo-PtrSetupSnapshot {
+    <#
+    .SYNOPSIS
+        A context reduced to plain values, safe to hand to another thread.
+
+    .DESCRIPTION
+        The window plans on a background runspace so the UI stays live, and
+        sharing the live context with it would mean two threads reading and
+        writing the same hashtables and PSObjects. A snapshot is strings and
+        numbers: the worker rebuilds its own context from it and nothing is
+        shared but the filesystem, which both sides only read.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [psobject] $Context)
+
+    $options = @{}
+    if ($Context.Options) {
+        foreach ($key in $Context.Options.Keys) { $options[$key] = $Context.Options[$key] }
+    }
+
+    return [pscustomobject]@{
+        PSTypeName    = 'PtrUiSetup.Snapshot'
+        SourcePath    = if ($Context.Source) { $Context.Source.Path } else { $null }
+        TargetPath    = if ($Context.Target) { $Context.Target.Path } else { $null }
+        SourceAccount = $Context.SourceAccount
+        TargetAccount = $Context.TargetAccount
+        # Characters travel as ids; the worker looks the folders up again.
+        Character     = @(foreach ($pair in $Context.Character) {
+                @{ SourceId = $pair.Source.Id; TargetId = $pair.Target.Id }
+            })
+        Options       = $options
+        Acknowledged  = @($Context.Acknowledged)
+    }
+}
+
+function ConvertFrom-PtrSetupSnapshot {
+    <#
+    .SYNOPSIS
+        Rebuild a context from a snapshot, on whichever thread is holding it.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [psobject] $Snapshot)
+
+    $source = $null
+    $target = $null
+    foreach ($side in @('Source', 'Target')) {
+        $path = $Snapshot."${side}Path"
+        if (-not $path) { continue }
+        $flavor = Get-WowFlavor -DirName (Split-Path -Path $path -Leaf)
+        if (-not $flavor) { continue }
+        $install = New-WowInstall -Path $path -Flavor $flavor
+        if ($side -eq 'Source') { $source = $install } else { $target = $install }
+    }
+
+    $pairs = [System.Collections.Generic.List[psobject]]::new()
+    if ($source -and $target -and $Snapshot.SourceAccount -and $Snapshot.TargetAccount -and @($Snapshot.Character).Count) {
+        $sourceById = @{}
+        foreach ($character in (Get-WowCharacter -Install $source -Account $Snapshot.SourceAccount)) {
+            $sourceById[$character.Id] = $character
+        }
+        $targetById = @{}
+        foreach ($character in (Get-WowCharacter -Install $target -Account $Snapshot.TargetAccount)) {
+            $targetById[$character.Id] = $character
+        }
+        foreach ($pair in @($Snapshot.Character)) {
+            # A character deleted since the snapshot was taken is dropped rather
+            # than rebuilt from nothing.
+            if (-not $sourceById.ContainsKey($pair.SourceId)) { continue }
+            if (-not $targetById.ContainsKey($pair.TargetId)) { continue }
+            $pairs.Add([pscustomobject]@{ Source = $sourceById[$pair.SourceId]; Target = $targetById[$pair.TargetId] })
+        }
+    }
+
+    $context = New-PtrSetupContext -Source $source -Target $target `
+        -SourceAccount $Snapshot.SourceAccount -TargetAccount $Snapshot.TargetAccount `
+        -Character @($pairs) -Options $Snapshot.Options
+    foreach ($id in @($Snapshot.Acknowledged)) { $null = $context.Acknowledged.Add($id) }
+    return $context
+}

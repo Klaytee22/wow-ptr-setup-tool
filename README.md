@@ -132,7 +132,7 @@ Modules/PtrUiSetup/
   Session.ps1                 first-guess selection and keeping it consistent
   Settings.ps1                remembers the folder you picked
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        157 tests, no game install and no Pester required
+tests/                        169 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -181,7 +181,7 @@ each of its entries.
 ## Development
 
 ```powershell
-./tests/Invoke-Tests.ps1                       # all 157
+./tests/Invoke-Tests.ps1                       # all 169
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
 
@@ -212,7 +212,7 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 157 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 169 passing tests, including an end-to-end pass over a realistic mock install.
 
 The window itself **has still not been opened on a real Windows machine**: WPF cannot run
 where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it

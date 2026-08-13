@@ -337,3 +337,42 @@ Describe 'Test-FileUnchanged' {
         Assert-Equal 'overwrite' @(New-TreeCopyPlan -Source $source -Destination $dest)[0].Kind
     }
 }
+
+Describe 'Hand-built actions' {
+    <#
+        New-TreeCopyPlan builds its action objects inline instead of calling
+        New-FileAction, because binding parameters to an advanced function once
+        per file was about half the cost of planning a real AddOns folder. That
+        is only safe while the two produce the same thing.
+    #>
+
+    It 'matches New-FileAction property for property' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'a.lua') -Content 'code'
+
+        $built = @(New-TreeCopyPlan -Source $source -Destination $dest)[0]
+        $reference = New-FileAction -Kind 'create' -Source $built.Source -Destination $built.Destination -Size $built.Size
+
+        Assert-Equal @($reference.PSObject.Properties.Name | Sort-Object) @($built.PSObject.Properties.Name | Sort-Object)
+        Assert-Equal @($reference.PSObject.TypeNames)[0] @($built.PSObject.TypeNames)[0]
+        foreach ($name in @($reference.PSObject.Properties.Name)) {
+            Assert-Equal $reference.$name $built.$name "The inline action differs from New-FileAction on $name."
+        }
+    }
+
+    It 'matches for a delete as well' {
+        $source = Join-Path $script:TestDrive 'src'
+        $dest = Join-Path $script:TestDrive 'dest'
+        $null = New-TestFile -Path (Join-Path $source 'keep.lua') -Content 'code'
+        $null = New-TestFile -Path (Join-Path $dest 'stale.lua') -Content 'old'
+
+        $built = @(New-TreeCopyPlan -Source $source -Destination $dest -Prune | Where-Object { $_.Kind -eq 'delete' })[0]
+        $reference = New-FileAction -Kind 'delete' -Destination $built.Destination -Size $built.Size -Note 'not in the live client'
+
+        Assert-Equal @($reference.PSObject.Properties.Name | Sort-Object) @($built.PSObject.Properties.Name | Sort-Object)
+        foreach ($name in @($reference.PSObject.Properties.Name)) {
+            Assert-Equal $reference.$name $built.$name "The inline delete differs from New-FileAction on $name."
+        }
+    }
+}

@@ -216,25 +216,46 @@ function New-TreeCopyPlan {
     $existing = @{}
     foreach ($file in $destinationFiles) { $existing[$file.Relative] = $file }
 
+    # The action objects are built here rather than through New-FileAction, which
+    # is where roughly half the time of a plan used to go. Binding parameters to
+    # an advanced function costs a fraction of a millisecond, which is nothing
+    # once and most of a second across a real AddOns folder. New-FileAction is
+    # still the way to make one anywhere that is not this loop, and a test holds
+    # the two shapes together.
     $actions = [System.Collections.Generic.List[psobject]]::new()
     foreach ($file in $sourceFiles) {
-        $target = Join-Path $Destination $file.Relative
         $match = $existing[$file.Relative]
+        $note = ''
         if (-not $match) {
-            $actions.Add((New-FileAction -Kind 'create' -Source $file.FullName -Destination $target -Size $file.Length))
+            $kind = 'create'
         }
         elseif (Test-FileUnchanged -Source $file -Destination $match) {
             # Already copied. Re-copying would be a no-op on disk but would fill
             # the preview with files that are not changing and back up every one
             # of them, so a second run could never report itself finished.
-            $actions.Add((New-FileAction -Kind 'skip' -Source $file.FullName -Destination $target -Size $file.Length -Note 'already copied'))
+            $kind = 'skip'
+            $note = 'already copied'
         }
         elseif ($Overwrite) {
-            $actions.Add((New-FileAction -Kind 'overwrite' -Source $file.FullName -Destination $target -Size $file.Length))
+            $kind = 'overwrite'
         }
         else {
-            $actions.Add((New-FileAction -Kind 'skip' -Source $file.FullName -Destination $target -Size $file.Length -Note 'already exists'))
+            $kind = 'skip'
+            $note = 'already exists'
         }
+
+        $actions.Add([pscustomobject]@{
+                PSTypeName  = 'PtrUiSetup.FileAction'
+                Kind        = $kind
+                Source      = $file.FullName
+                Destination = (Join-Path $Destination $file.Relative)
+                Size        = $file.Length
+                Note        = $note
+                # '' rather than $null, which is what New-FileAction leaves an
+                # unbound [string] as. Both read as empty, but the objects should
+                # be indistinguishable.
+                Content     = ''
+            })
     }
 
     if ($Prune) {
@@ -242,7 +263,15 @@ function New-TreeCopyPlan {
         foreach ($file in $sourceFiles) { $null = $wanted.Add($file.Relative) }
         foreach ($file in $destinationFiles) {
             if ($wanted.Contains($file.Relative)) { continue }
-            $actions.Add((New-FileAction -Kind 'delete' -Destination $file.FullName -Size $file.Length -Note 'not in the live client'))
+            $actions.Add([pscustomobject]@{
+                    PSTypeName  = 'PtrUiSetup.FileAction'
+                    Kind        = 'delete'
+                    Source      = ''
+                    Destination = $file.FullName
+                    Size        = $file.Length
+                    Note        = 'not in the live client'
+                    Content     = ''
+                })
         }
     }
 

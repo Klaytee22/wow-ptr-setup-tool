@@ -104,11 +104,25 @@ install that takes picking a character or an account from about 1.3 seconds to 0
 actually does, so a step that starts reading a new option cannot quietly keep a stale
 plan.
 
-**Cards appear before their plans do.** `Write-StepCard` renders all nine immediately
-with a `checking` pill, then fills each one in as its plan lands, pumping the dispatcher
-between steps so the window stays live and the progress bar moves. A change made
-mid-render sets `$script:RefreshAgain` and the pass restarts rather than being blocked
-or stacking.
+**Planning happens on another thread.** A persistent background runspace does the tree
+walking; the UI thread polls for answers from a `DispatcherTimer`, which is the only
+place a worker's result meets WPF. The worker never sees the live context — it gets a
+`ConvertTo-PtrSetupSnapshot` of plain values and rebuilds its own, so no object is
+touched by two threads. Requests go one step at a time so each card fills in as its own
+answer arrives, cheapest step first (`copy_addons` is much the slowest and goes last).
+A superseded answer is dropped by comparing a token, cancellation is `BeginStop` rather
+than `Stop` so cancelling never blocks the thread it is protecting, and if a runspace
+cannot be had at all the window falls back to planning inline — slower, but working.
+
+`Ui.Tests.ps1` lifts the scriptblock the window sends to the worker out of the source and
+runs it in a real runspace, so a name the module does not export fails there rather than
+as a window that never finishes loading.
+
+**Nothing waits on a plan that is only about counting.** Whether a step *can* run is a
+few `Test-Path` calls (`Get-PtrSetupStepBlocker`), so the tick boxes are live and
+pre-ticked the moment the cards are drawn. Only the file counts arrive late. Ticking a
+step and knowing how many files it will copy are separate questions, and making the
+first wait on the second is what made the list look broken.
 
 **The file list inside a step is built when it is first expanded**, not when the card is
 drawn. Formatting tens of thousands of lines for a panel nobody has opened is most of a
@@ -120,7 +134,12 @@ console the launcher opened reports what is loading — a few seconds of silence
 double-click reads as a machine that has ignored you.
 
 `Get-RelativeFile` is the inner loop of all of it, so it does its own string handling
-rather than calling `Get-PathRelative` (and through it `GetFullPath`) once per file.
+rather than calling `Get-PathRelative` (and through it `GetFullPath`) once per file. For
+the same reason `New-TreeCopyPlan` builds its `FileAction` objects inline instead of
+calling `New-FileAction`: binding parameters to an advanced function costs a fraction of
+a millisecond, which is nothing once and was about half the cost of planning a real
+`AddOns` folder. `New-FileAction` remains the way to make one anywhere that is not that
+loop, and a test holds the two shapes together property by property.
 
 ## Safety model
 

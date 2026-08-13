@@ -56,6 +56,8 @@
         'Set-PtrSetupAccount'
         'Set-PtrSetupAccountGuess'
         'Set-PtrSetupCharacterGuess'
+        'ConvertTo-PtrSetupSnapshot'
+        'ConvertFrom-PtrSetupSnapshot'
         'Get-PtrSetupSettingPath'
         'Get-PtrSetupSetting'
         'Save-PtrSetupSetting'
