@@ -263,19 +263,41 @@ Describe 'The folder box, without WPF' {
         finally { $env:PTRSETUP_SETTINGS = $null }
     }
 
-    It 'falls back to a real folder to show when nothing is installed' {
+    It 'always opens on a folder, saved or detected or the usual one' {
         . (Get-WindowFunction @('Get-StartingFolder'))
 
         $env:PTRSETUP_SETTINGS = Join-Path $script:TestDrive 'settings.json'
         $env:PTRSETUP_EXTRA_ROOTS = Join-Path $script:TestDrive 'no-game-here'
         try {
-            # No saved folder, nothing detected: the box still opens on something
-            # the user can recognise and correct rather than an empty field.
-            Assert-Equal (Get-WowDefaultRoot) (Get-StartingFolder)
+            # Nothing saved and the override points at nothing, so this is either
+            # whatever is really installed on the machine running the test, or the
+            # conventional folder. Asserting the second outright would only hold on
+            # a machine without the game — which is not a property worth having a
+            # test depend on. What matters is that the box is never empty.
+            $starting = Get-StartingFolder
+            Assert-True ([bool]$starting) 'The folder box must never open empty.'
+
+            $detected = Find-WowFolder
+            $expected = if ($detected) { $detected } else { Get-WowDefaultRoot }
+            Assert-Equal $expected $starting
         }
         finally {
             $env:PTRSETUP_SETTINGS = $null
             $env:PTRSETUP_EXTRA_ROOTS = $null
         }
+    }
+
+    It 'prefers a saved folder to anything it would otherwise detect' {
+        . (Get-WindowFunction @('Get-StartingFolder'))
+
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $env:PTRSETUP_SETTINGS = Join-Path $script:TestDrive 'settings.json'
+        try {
+            $null = Save-PtrSetupSetting -WowFolder $root
+            # Even on a machine with the game installed somewhere conventional,
+            # the folder the user last settled on is the one that comes back.
+            Assert-Equal $root (Get-StartingFolder)
+        }
+        finally { $env:PTRSETUP_SETTINGS = $null }
     }
 }

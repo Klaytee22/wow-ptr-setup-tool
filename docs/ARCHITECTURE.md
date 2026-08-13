@@ -135,6 +135,16 @@ contributor needs Gallery access before running anything, and the suite is worth
 than the framework. `tests/TestHelpers.ps1` builds fake `World of Warcraft` trees in
 temp folders; each `It` gets its own `$script:TestDrive`, cleaned up afterwards.
 
+**Nothing may depend on the machine running it.** Detection is where this bites: a test
+that asserts `Find-WowFolder` returns the tree it just built passes on a machine without
+the game and fails on one with it, because finding the real install first is correct
+behaviour. `-SkipDefaultLocations` exists on `Get-WowRootCandidate` and `Find-WowFolder`
+for exactly this, and where the test is *about* the ordering between an override and a
+real install, `Use-FakeInstalledCopy` in `Detect.Tests.ps1` injects the installed copy by
+stubbing `Get-WowRegistryPath` inside the module and restoring it afterwards. Without
+that injection those tests are vacuous everywhere the game is absent — which is every
+machine CI runs on, so they would pass forever while the behaviour rotted.
+
 Two layers:
 
 - **Unit** — `Detect`, `ConfigWtf`, `FileOps`, `Steps`, `Ui`: one function against small

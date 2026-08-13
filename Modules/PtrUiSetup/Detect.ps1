@@ -200,34 +200,46 @@ function Get-WowRootCandidate {
         Folders worth looking in for a WoW install, best guess first.
 
     .DESCRIPTION
-        Ordered by how much each source is worth trusting, and kept cheap: the
-        registry is exact and costs one read, then a handful of conventional
-        folders on local disks. Nothing here walks a directory tree — a
-        filesystem-wide search for a folder this large is not worth the seconds
-        it takes when the window has a Browse button.
+        Ordered by how much each source is worth trusting, and kept cheap: an
+        explicit override first, then the registry, which is exact and costs one
+        read, then a handful of conventional folders on local disks. Nothing here
+        walks a directory tree — a filesystem-wide search for a folder this large
+        is not worth the seconds it takes when the window has a Browse button.
+
+    .PARAMETER SkipDefaultLocations
+        Offer only PTRSETUP_EXTRA_ROOTS, ignoring the registry and the
+        conventional folders. This is how the tests stay honest: without it they
+        pass or fail depending on whether the machine running them happens to
+        have World of Warcraft installed.
     #>
     [CmdletBinding()]
-    param()
+    param([switch] $SkipDefaultLocations)
 
     $roots = [System.Collections.Generic.List[string]]::new()
-    foreach ($path in (Get-WowRegistryPath)) { $roots.Add($path) }
 
-    if (Test-WindowsHost) {
-        foreach ($drive in (Get-FixedDriveRoot)) {
-            foreach ($relative in $script:WowRelativeRoots) { $roots.Add((Join-Path $drive $relative)) }
-        }
-    }
-    elseif (Test-MacHost) {
-        $roots.Add('/Applications/World of Warcraft')
-        $roots.Add((Join-Path $HOME 'Applications/World of Warcraft'))
-    }
-
-    # Set PTRSETUP_EXTRA_ROOTS to point the app at extra folders (used to drive
-    # the GUI against a fake install tree during development).
+    # PTRSETUP_EXTRA_ROOTS points the tool at extra folders — a fake install tree
+    # during development, or a copy somewhere detection cannot reach. It goes
+    # first because someone who set it meant it, and Find-WowFolder returns the
+    # first candidate that holds a client: last would let a real install shadow
+    # the override on exactly the machines where the override matters.
     $extra = $env:PTRSETUP_EXTRA_ROOTS
     if ($extra) {
         foreach ($part in $extra.Split([System.IO.Path]::PathSeparator)) {
             if ($part.Trim()) { $roots.Add($part.Trim()) }
+        }
+    }
+
+    if (-not $SkipDefaultLocations) {
+        foreach ($path in (Get-WowRegistryPath)) { $roots.Add($path) }
+
+        if (Test-WindowsHost) {
+            foreach ($drive in (Get-FixedDriveRoot)) {
+                foreach ($relative in $script:WowRelativeRoots) { $roots.Add((Join-Path $drive $relative)) }
+            }
+        }
+        elseif (Test-MacHost) {
+            $roots.Add('/Applications/World of Warcraft')
+            $roots.Add((Join-Path $HOME 'Applications/World of Warcraft'))
         }
     }
 
@@ -246,11 +258,15 @@ function Find-WowFolder {
         and one directory listing. Returns the "World of Warcraft" folder rather
         than the client folder inside it, since that is the one a person
         recognises and the one worth showing them.
+
+    .PARAMETER SkipDefaultLocations
+        Look only where PTRSETUP_EXTRA_ROOTS says, ignoring anything actually
+        installed on this machine.
     #>
     [CmdletBinding()]
-    param()
+    param([switch] $SkipDefaultLocations)
 
-    foreach ($candidate in (Get-WowRootCandidate)) {
+    foreach ($candidate in (Get-WowRootCandidate -SkipDefaultLocations:$SkipDefaultLocations)) {
         $found = @(Get-WowInstall -Path $candidate -SkipDefaultLocations)
         if ($found.Count) { return $found[0].Root }
     }
