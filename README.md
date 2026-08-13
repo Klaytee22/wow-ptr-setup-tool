@@ -18,27 +18,33 @@ see the step is done.
 
 ## Running it
 
-Download or clone the repo, then **double-click `Start-PtrUiSetup.cmd`**.
+Download or clone the repo, then **double-click one of these**:
+
+| Double-click | What happens |
+|---|---|
+| **`Try-It-Safely.cmd`** | Builds a fake game folder on your desktop and opens the window on it. **Start here** — it cannot touch your real install. |
+| **`Start-PtrUiSetup.cmd`** | The window, against your actual game folder. |
+| `Run-Tests.cmd` | Runs the test suite. |
 
 Nothing to install. It runs on the Windows PowerShell that ships with Windows, and the
-launcher passes `-ExecutionPolicy Bypass` for that one process, so no machine-wide
+launchers pass `-ExecutionPolicy Bypass` for that one process, so no machine-wide
 setting changes.
 
-> **First time?** Don't point it at your real game folder yet. Run
-> `.\tools\New-MockWowFolder.ps1 -Launch` to build a fake install on your desktop and
-> open the window against that. [`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) walks the
-> whole thing through with the exact numbers you should see at each stage.
+> **Windows will not run a `.ps1` by double-clicking it** — Explorer opens it in
+> Notepad, and so does Command Prompt. That is what the `.cmd` files are for. If you
+> would rather use a terminal, it has to be **PowerShell**, not Command Prompt:
+>
+> ```powershell
+> .\PtrUiSetup.ps1                                  # the window
+> .\PtrUiSetup.ps1 -Path 'D:\Games\World of Warcraft'  # skip straight to a folder
+> .\PtrUiSetup.ps1 -ListSteps                       # print the steps, no window
+> ```
 
-From a prompt, if you prefer:
+[`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) walks the fake install through end to end,
+with the exact numbers you should see at each stage.
 
-```powershell
-.\PtrUiSetup.ps1                                  # the window
-.\PtrUiSetup.ps1 -Path 'D:\Games\World of Warcraft'  # skip straight to a folder
-.\PtrUiSetup.ps1 -ListSteps                       # print the steps, no window
-```
-
-You should not need any of those. The window has a folder box with **Browse** and
-**Detect** next to it, and remembers the folder you settle on, so the second launch
+You should not need a command line at all. The window has a folder box with **Browse**
+and **Detect** next to it, and remembers the folder you settle on, so the second launch
 opens on it.
 
 **Windows only** — WPF is. The module underneath is cross-platform and works from a
@@ -113,7 +119,9 @@ copy.
 ## Layout
 
 ```
-Start-PtrUiSetup.cmd          double-click launcher
+Try-It-Safely.cmd             double-click: fake install, then the window
+Start-PtrUiSetup.cmd          double-click: the window, on your real folder
+Run-Tests.cmd                 double-click: the test suite
 PtrUiSetup.ps1                the window: renders state, calls the module
 ui/MainWindow.xaml            the window's layout
 Modules/PtrUiSetup/
@@ -124,7 +132,7 @@ Modules/PtrUiSetup/
   Session.ps1                 first-guess selection and keeping it consistent
   Settings.ps1                remembers the folder you picked
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        138 tests, no game install and no Pester required
+tests/                        140 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -144,7 +152,8 @@ Get-PtrSetupBackup -InstallPath $context.Target.Path
 
 ## Trying it safely: the mock install
 
-Before pointing it at your real game folder, build a fake one:
+Before pointing it at your real game folder, build a fake one — **double-click
+`Try-It-Safely.cmd`**, or from a PowerShell prompt:
 
 ```powershell
 .\tools\New-MockWowFolder.ps1 -Launch
@@ -172,7 +181,7 @@ each of its entries.
 ## Development
 
 ```powershell
-./tests/Invoke-Tests.ps1                       # all 138
+./tests/Invoke-Tests.ps1                       # all 140
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
 
@@ -203,7 +212,7 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 138 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 140 passing tests, including an end-to-end pass over a realistic mock install.
 
 The window itself **has still not been opened on a real Windows machine**: WPF cannot run
 where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it

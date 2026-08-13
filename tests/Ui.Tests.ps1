@@ -165,6 +165,38 @@ Describe 'The window and its XAML' {
     }
 }
 
+Describe 'The double-click launchers' {
+    <#
+        Windows does not run a .ps1 on double-click — Explorer opens it in
+        Notepad, and so does Command Prompt. The .cmd files are the only entry
+        points a person can actually click, so they have to point at real files.
+    #>
+
+    It 'every launcher points at a script that exists' {
+        $launchers = @(Get-ChildItem -LiteralPath $repoRoot -Filter '*.cmd' -File)
+        Assert-True ($launchers.Count -ge 3) "Expected the launchers, found $($launchers.Count)."
+
+        foreach ($launcher in $launchers) {
+            $text = Get-Content -LiteralPath $launcher.FullName -Raw
+            $referenced = @([regex]::Matches($text, '%~dp0([^"]+\.ps1)'))
+            Assert-Equal 1 $referenced.Count "$($launcher.Name) should run exactly one script."
+
+            $relative = $referenced[0].Groups[1].Value -replace '\\', '/'
+            Assert-True (Test-Path -LiteralPath (Join-Path $repoRoot $relative)) `
+                "$($launcher.Name) runs $relative, which is not there."
+        }
+    }
+
+    It 'opens the window on a thread WPF will accept' {
+        # -STA is the whole reason these files exist rather than a bare .ps1.
+        foreach ($name in @('Start-PtrUiSetup.cmd', 'Try-It-Safely.cmd')) {
+            $text = Get-Content -LiteralPath (Join-Path $repoRoot $name) -Raw
+            Assert-True ($text -match '-STA') "$name must pass -STA or WPF will refuse to start."
+            Assert-True ($text -match '-ExecutionPolicy Bypass') "$name must not be blocked by execution policy."
+        }
+    }
+}
+
 Describe 'The folder box, without WPF' {
     <#
         The window cannot be opened off Windows, but most of what the folder box

@@ -11,27 +11,25 @@ real game folder. Nothing here touches your actual WoW install.
 
 ## 1. Build the fake install and open the window
 
-From the repo folder, in PowerShell:
-
-```powershell
-.\tools\New-MockWowFolder.ps1 -Launch
-```
+**Double-click `Try-It-Safely.cmd`** in the repo folder.
 
 That builds `PtrUiSetup-Mock\World of Warcraft` on your desktop and opens the window
-pointed at it. If you have run it before, add `-Force` to rebuild.
+pointed at it, rebuilding the folder from scratch each time you run it.
+
+> Double-clicking a `.ps1` will not work — Windows opens those in Notepad. So does
+> pasting `.\tools\New-MockWowFolder.ps1` into Command Prompt. The `.cmd` files are
+> the clickable entry points; a terminal has to be **PowerShell**, where
+> `.\tools\New-MockWowFolder.ps1 -Launch -Force` does the same thing.
 
 It creates a live client (`_classic_`: 5 addons, 3 characters, full settings) and a
 PTR client (`_classic_ptr_`: launched once, one copied character, one stale addon).
 **Every file is stamped `LIVE` or `PTR`**, so after applying you can open anything on
 the PTR side and see whether it genuinely came across.
 
-> If the window does not appear at all, run `.\PtrUiSetup.ps1 -ListSteps` — that uses
-> the same module without WPF. If it prints nine steps, the module loaded and the
-> problem is in the window; that distinction is most of the debugging.
->
-> If it says the session is multi-threaded, double-click `Start-PtrUiSetup.cmd`
-> instead — that launcher passes `-STA`, which is what WPF needs. Then point the
-> folder box at the mock folder on your desktop.
+> If the window does not appear at all, the console window that opened behind it
+> holds the error. Double-click `Run-Tests.cmd` as a second opinion: if the suite
+> passes, the module is fine and the problem is in the window itself, which is most
+> of the debugging done.
 
 ## 2. What the window should show before you touch anything
 
