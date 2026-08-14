@@ -108,10 +108,39 @@ function New-MockCharacter {
     Write-MockFile (Join-Path $Root 'macros-cache.txt') "MACRO Pull $Origin`n/say Pulling!`n"
 }
 
+function New-MockBartender {
+    <#
+        An AceDB-shaped saved variable — the layout Bartender4, ElvUI and most
+        others use. profileKeys maps "Name - Realm" onto a profile name, which is
+        the table the tool adds the PTR character to so the bars come up right.
+    #>
+    param([string] $Realm, [string[]] $CharacterName, [string] $Origin)
+
+    $profileFor = @{ }
+    $keys = ''
+    $index = 0
+    foreach ($name in $CharacterName) {
+        # One character on its own named profile, one sharing a shared profile,
+        # one on the default — the three cases the rewrite has to carry across.
+        $profile = @("$name - $Realm", 'Healer', 'Default')[$index % 3]
+        $profileFor[$name] = $profile
+        $keys += "`t`t[`"$name - $Realm`"] = `"$profile`",`n"
+        $index++
+    }
+
+    $bodies = ''
+    foreach ($profile in @($profileFor.Values | Select-Object -Unique | Sort-Object)) {
+        $bodies += "`t`t[`"$profile`"] = {`n`t`t`t[`"bar1`"] = {`n`t`t`t`t[`"position`"] = `"$Origin-$profile`",`n`t`t`t},`n`t`t},`n"
+    }
+
+    return "-- $Origin account-wide Bartender4 profiles`nBartender4DB = {`n`t[`"profileKeys`"] = {`n$keys`t},`n`t[`"profiles`"] = {`n$bodies`t},`n}`n"
+}
+
 function New-MockAccount {
     param([string] $InstallRoot, [string] $Realm, [string[]] $CharacterName, [string] $Origin)
 
     $accountRoot = Join-Path (Join-Path $InstallRoot 'WTF/Account') $account
+    Write-MockFile (Join-Path $accountRoot 'SavedVariables/Bartender4.lua') (New-MockBartender -Realm $Realm -CharacterName $CharacterName -Origin $Origin)
     Write-MockFile (Join-Path $accountRoot 'SavedVariables/WeakAuras.lua') "-- $Origin account-wide WeakAuras profiles`n"
     Write-MockFile (Join-Path $accountRoot 'SavedVariables/Plater.lua') "-- $Origin account-wide Plater profiles`n"
     Write-MockFile (Join-Path $accountRoot 'bindings-cache.wtf') "bind SHIFT-1 MULTIACTIONBAR1BUTTON1`n# $Origin account-wide keybinds`n"

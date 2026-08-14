@@ -50,6 +50,9 @@ function New-PtrSetupContext {
         # The guide clears the PTR addon folder before pasting. Everything removed
         # is backed up, so this stays reversible.
         ReplaceAddOns         = $true
+        # Add the PTR character's key to each copied addon's profileKeys table so
+        # the profile its live counterpart used is the one that loads.
+        PointProfilesAtPtr    = $true
     }
     if ($Options) {
         foreach ($key in $Options.Keys) { $defaults[$key] = $Options[$key] }
@@ -274,7 +277,7 @@ $script:PtrSetupSteps = @(
         -Title 'Copy account-wide addon settings' `
         -Summary 'Copies WTF\Account\<ACCOUNT>\SavedVariables — the profiles shared by all your characters.' `
         -SourceNote 'Account-level SavedVariables: where most addons keep their profiles.' `
-        -Instructions 'Your live and PTR account folder names are usually identical, but if they differ pick the right pair above — copying into the wrong account folder silently does nothing in game. The guide skips this folder, which is why it then tells you to re-pick each addon profile in game; copying it means your account-wide profiles come across and you do not have to.' `
+        -Instructions 'Your live and PTR account folder names are usually identical, but if they differ pick the right pair above — copying into the wrong account folder silently does nothing in game. The guide skips this folder, which is why it then tells you to re-pick each addon profile in game; copying it means your account-wide profiles come across, and with "Point addon profiles at your PTR character" ticked the right one is already selected when you log in.' `
         -Prerequisite {
         param($Context)
         if (-not $Context.SourceAccount -or -not $Context.TargetAccount) {
@@ -289,10 +292,25 @@ $script:PtrSetupSteps = @(
         if (-not $sourceDir -or -not $targetDir) { return @() }
 
         $overwrite = Get-ContextOption -Context $Context -Name 'Overwrite'
-        $actions = [System.Collections.Generic.List[psobject]]::new()
-        foreach ($action in (New-TreeCopyPlan -Source (Join-Path $sourceDir 'SavedVariables') -Destination (Join-Path $targetDir 'SavedVariables') -Overwrite $overwrite)) {
-            $actions.Add($action)
+        $sourceSaved = Join-Path $sourceDir 'SavedVariables'
+        $targetSaved = Join-Path $targetDir 'SavedVariables'
+
+        $copies = @(New-TreeCopyPlan -Source $sourceSaved -Destination $targetSaved -Overwrite $overwrite)
+        # The profile rewrite replaces the plain copy of the same file rather
+        # than following it, so nothing is written twice and the preview shows
+        # each file once.
+        if (Get-ContextOption -Context $Context -Name 'PointProfilesAtPtr') {
+            # Held in a variable first: an empty array returned from a function and
+            # read straight into a parameter arrives as $null, because writing @()
+            # to the pipeline writes nothing at all.
+            $mapping = @(Get-PtrSetupProfileMapping -Context $Context)
+            $rewritten = @(New-ProfileKeyPlan -Source $sourceSaved -Destination $targetSaved `
+                    -Mapping $mapping -Overwrite $overwrite)
+            $copies = @(Merge-FileActionPlan -Action $copies -Override $rewritten)
         }
+
+        $actions = [System.Collections.Generic.List[psobject]]::new()
+        foreach ($action in $copies) { $actions.Add($action) }
         if (Get-ContextOption -Context $Context -Name 'IncludeMacrosBindings') {
             foreach ($name in $script:AccountExtraFiles) {
                 foreach ($action in (New-SingleFileCopyPlan -Source (Join-Path $sourceDir $name) -Destination (Join-Path $targetDir $name) -Overwrite $overwrite)) {
@@ -320,12 +338,26 @@ $script:PtrSetupSteps = @(
         if (Get-ContextOption -Context $Context -Name 'IncludeMacrosBindings') { $names += $script:CharacterExtraFiles }
         if (Get-ContextOption -Context $Context -Name 'IncludeChatCache' -Default $false) { $names += 'chat-cache.txt' }
 
+        $pointProfiles = Get-ContextOption -Context $Context -Name 'PointProfilesAtPtr'
         $actions = [System.Collections.Generic.List[psobject]]::new()
         foreach ($pair in (Get-ContextCharacter -Context $Context)) {
             $sourceDir = Get-WowCharacterPath -Install $Context.Source -Character $pair.Source
             $targetDir = Get-WowCharacterPath -Install $Context.Target -Character $pair.Target
+            $sourceSaved = Join-Path $sourceDir 'SavedVariables'
+            $targetSaved = Join-Path $targetDir 'SavedVariables'
 
-            foreach ($action in (New-TreeCopyPlan -Source (Join-Path $sourceDir 'SavedVariables') -Destination (Join-Path $targetDir 'SavedVariables') -Overwrite $overwrite)) {
+            $copies = @(New-TreeCopyPlan -Source $sourceSaved -Destination $targetSaved -Overwrite $overwrite)
+            # Most addons keep profileKeys in the account-level file, but a few
+            # keep a per-character database as well, and it is keyed the same way.
+            if ($pointProfiles) {
+                $mapping = @([pscustomobject]@{
+                        From = '{0} - {1}' -f $pair.Source.Name, $pair.Source.Realm
+                        To   = '{0} - {1}' -f $pair.Target.Name, $pair.Target.Realm
+                    })
+                $rewritten = @(New-ProfileKeyPlan -Source $sourceSaved -Destination $targetSaved -Mapping $mapping -Overwrite $overwrite)
+                $copies = @(Merge-FileActionPlan -Action $copies -Override $rewritten)
+            }
+            foreach ($action in $copies) {
                 $actions.Add($action)
             }
             foreach ($name in $names) {

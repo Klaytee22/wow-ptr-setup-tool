@@ -131,11 +131,15 @@ $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
 # one that appears to hang. Anything not listed here clears the lot.
 $script:Invalidates = @{
     account               = @('copy_account_saved_variables', 'copy_character_data')
-    character             = @('copy_character_data')
+    # The account-level file is in here too: pointing addon profiles at the PTR
+    # character adds a key per mapped character to it, so changing the mapping
+    # changes what that step would write.
+    character             = @('copy_account_saved_variables', 'copy_character_data')
     ReplaceAddOns         = @('copy_addons')
     IncludeMacrosBindings = @('copy_account_saved_variables', 'copy_character_data')
     IncludeChatCache      = @('copy_character_data')
     AllowOutOfDate        = @('copy_config_wtf', 'allow_out_of_date_addons')
+    PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
 }
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
@@ -1169,6 +1173,7 @@ function Update-Options {
         $ui.MacrosOption.IsChecked = [bool]$script:Context.Options['IncludeMacrosBindings']
         $ui.ChatOption.IsChecked = [bool]$script:Context.Options['IncludeChatCache']
         $ui.OutOfDateOption.IsChecked = [bool]$script:Context.Options['AllowOutOfDate']
+        $ui.ProfileKeysOption.IsChecked = [bool]$script:Context.Options['PointProfilesAtPtr']
     }
     finally {
         $script:Suppress = $false
@@ -1520,6 +1525,7 @@ $optionMap = @{
     MacrosOption        = 'IncludeMacrosBindings'
     ChatOption          = 'IncludeChatCache'
     OutOfDateOption     = 'AllowOutOfDate'
+    ProfileKeysOption   = 'PointProfilesAtPtr'
 }
 foreach ($controlName in $optionMap.Keys) {
     $ui[$controlName].Tag = $optionMap[$controlName]

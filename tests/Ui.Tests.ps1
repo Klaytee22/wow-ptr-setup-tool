@@ -75,6 +75,37 @@ Describe 'The window and its XAML' {
         }
     }
 
+    It 'connects every option checkbox to an option that exists' {
+        # Three files have to agree for a checkbox to do anything: the XAML names
+        # it, $optionMap says which option it sets, and the context has to have
+        # that option. Miss the middle one and the box is inert — it ticks and
+        # nothing happens, which is what it looked like the last time this broke.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $assignment = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -eq '$optionMap'
+                }, $true))
+        Assert-Equal 1 $assignment.Count 'Expected one $optionMap in the window script.'
+        $map = [scriptblock]::Create($assignment[0].Right.Extent.Text).Invoke()[0]
+
+        $defined = @(Get-XamlName -Path $xamlPath | Where-Object { $_ -like '*Option' })
+        $options = @((New-PtrSetupContext).Options.Keys)
+        $script = Get-Content -LiteralPath $scriptPath -Raw
+
+        foreach ($control in $defined) {
+            Assert-True ($map.ContainsKey($control)) "$control is a checkbox in the XAML that no option is wired to."
+        }
+        foreach ($control in $map.Keys) {
+            Assert-True ($defined -contains $control) "`$optionMap names $control, which the XAML does not define."
+            Assert-True ($options -contains $map[$control]) "$control sets '$($map[$control])', which is not a context option."
+            # And the box has to be filled in from the context, or it shows the
+            # XAML's default rather than the setting in force.
+            Assert-True ($script -match [regex]::Escape("`$ui.$control.IsChecked = ")) `
+                "$control is never set from the context, so it will not show the option's real state."
+        }
+    }
+
     It 'uses only colours WPF can parse' {
         $text = Get-Content -LiteralPath $scriptPath -Raw
         foreach ($match in [regex]::Matches($text, "'(#[0-9A-Fa-f]*[^0-9A-Fa-f'][^']*)'")) {

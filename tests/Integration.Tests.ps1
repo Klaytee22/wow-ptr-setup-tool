@@ -163,6 +163,58 @@ Describe 'A full run, instruction by instruction' {
         Assert-True ($saved -match 'LIVE account-wide') 'Account-wide profiles did not come across.'
     }
 
+    It 'points the PTR character at the profile its live counterpart used' {
+        # The guide's "log in and go to each addon and copy the profile from your
+        # Live Character's profile", done here instead: AceDB looks the profile up
+        # by "Name - Realm", and the PTR realm is not the live one.
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        $accountDir = Get-ContextAccountPath -Context $mock.Context -Side 'Target'
+        $saved = Get-Content -LiteralPath (Join-Path $accountDir 'SavedVariables/Bartender4.lua') -Raw
+
+        Assert-True ($saved -match '\["Sunderfury - Classic PTR Realm 1"\] = "Sunderfury - Whitemane"') `
+            "The PTR character does not load the live profile:`n$saved"
+        # The profile it now points at has to be in the file too, or the key names
+        # something that is not there and the addon falls back to defaults anyway.
+        Assert-True ($saved -match '\["Sunderfury - Whitemane"\] = \{') 'The profile the key names is not in the file.'
+        Assert-True ($saved -match 'LIVE-Sunderfury - Whitemane') 'The profile body is still the PTR client''s own.'
+    }
+
+    It 'leaves the unmapped characters'' keys alone' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        $accountDir = Get-ContextAccountPath -Context $mock.Context -Side 'Target'
+        $saved = Get-Content -LiteralPath (Join-Path $accountDir 'SavedVariables/Bartender4.lua') -Raw
+        Assert-True ($saved -match '\["Mendicant - Whitemane"\] = "Healer"') 'A live key that was not mapped went missing.'
+        Assert-False ($saved -match 'Mendicant - Classic PTR Realm 1') 'A key was invented for a character that was never mapped.'
+    }
+
+    It 'does not touch the profile keys when the option is off' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $mock.Context.Options['PointProfilesAtPtr'] = $false
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        $accountDir = Get-ContextAccountPath -Context $mock.Context -Side 'Target'
+        $saved = Get-Content -LiteralPath (Join-Path $accountDir 'SavedVariables/Bartender4.lua') -Raw
+        Assert-False ($saved -match 'Sunderfury - Classic PTR Realm 1') 'The rewrite ran with the option turned off.'
+        Assert-True ($saved -match 'LIVE account-wide') 'The plain copy did not happen either.'
+    }
+
+    It 'writes the file once, not once per step' {
+        # The rewrite stands in for the plain copy of the same file. If it were
+        # added alongside it instead, the file would be copied and then rewritten,
+        # and the backup would hold the copy rather than what was there before.
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $step = Get-PtrSetupStep -Id 'copy_account_saved_variables'
+        $plan = @(New-PtrSetupStepPlan -Step $step -Context $mock.Context)
+
+        $bartender = @($plan | Where-Object { $_.Destination -like '*Bartender4.lua' })
+        Assert-Equal 1 $bartender.Count "Bartender4.lua is planned $($bartender.Count) times."
+        Assert-Equal '' $bartender[0].Source 'The planned action copies the live file, so the rewrite would be lost.'
+    }
+
     It 'copies the client settings but keeps the PTR realm' {
         # Guide: paste Config.wtf wholesale. This tool merges instead, so the PTR
         # client keeps pointing at PTR realms — see docs/GUIDE.md.

@@ -1,4 +1,4 @@
-# WoW PTR UI Setup
+﻿# WoW PTR UI Setup
 
 Copy your live World of Warcraft UI — addons, addon profiles, keybinds, macros and
 frame layout — onto the PTR client, without hand-copying folders and hoping you got
@@ -59,13 +59,13 @@ console on macOS or Linux (see *Scripting it* below).
 | 3 | Quit World of Warcraft before copying | manual | Ticks itself off when no WoW process is running — WoW rewrites `WTF` on exit and would undo the copy |
 | 4 | Copy your addons | auto | `Interface\AddOns` → PTR, optionally clearing PTR-only addons first |
 | 5 | Carry over `Config.wtf` | auto | Merges live settings into the PTR's file, keeping PTR realm/account keys |
-| 6 | Copy account-wide addon settings | auto | `WTF\Account\<ACCOUNT>\SavedVariables`, `bindings-cache.wtf`, macros, `config-cache.wtf` |
+| 6 | Copy account-wide addon settings | auto | `WTF\Account\<ACCOUNT>\SavedVariables`, `bindings-cache.wtf`, macros, `config-cache.wtf`, and each addon's profile pointed at the PTR character |
 | 7 | Copy per-character settings | auto | Per character: `SavedVariables`, `AddOns.txt`, `layout-local.txt`, `config-cache.wtf`, keybinds, macros |
 | 8 | Allow out-of-date addons | auto | Sets `checkAddonVersion "0"` so live-built addons load on a higher interface version |
 | 9 | Launch the PTR and check the UI | manual | Closing check, with a pointer back to Restore if something looks wrong |
 
 Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
-along with the five places this tool deliberately does something different (and why).
+along with the six places this tool deliberately does something different (and why).
 
 Every automated step is **previewable** — press *Preview changes* for the exact file
 list with nothing written — and **individually tickable**, so you can copy addons
@@ -73,6 +73,39 @@ without touching settings, or the reverse.
 
 The copying is plain PowerShell (`Copy-Item`) against your folders. No server, no
 browser, no network access at any point.
+
+## Will my action bars look the same?
+
+Three separate things, from three different places.
+
+**The abilities sitting in each bar slot are server-side.** WoW keeps them on the
+character, not in any file on your disk, so they came across with Blizzard's character
+copy before this tool ran. Nothing here touches them.
+
+**Where the bars are — Bartender, ElvUI, Dominos** — is a profile in
+`WTF\Account\<ACCOUNT>\SavedVariables\<Addon>.lua`, which step 6 copies.
+
+**Which profile loads** is the part that used to need doing by hand. Those addons pick
+one out of a table keyed by `"Character - Realm"`, and the PTR realm has a different
+name, so the copied file has your profile in it but no key that matches — the addon
+falls back to its default and the bars come up bare. The **Point addon profiles at
+your PTR character** option (on by default) adds that one key, so the profile its live
+counterpart used is the one that loads. This is what the source guide means by *"Log
+in and go to each addon and copy the profile from your Live Character's profile"*;
+[`docs/GUIDE.md`](docs/GUIDE.md) has the detail.
+
+If an addon still comes up on defaults, it keeps its settings under a scheme this
+cannot read. Pick the profile once in its options and it sticks.
+
+**Want a safety net for the bar slots themselves?** Nothing outside the game can read
+or write them, so an external tool cannot snapshot them and screenshots are the manual
+option. The better one is an in-game addon — [ActionBarSaver] is the long-standing
+choice: `/abs save live` on your live character before you copy, and after this tool
+has run, `/abs restore live` on the PTR. Its saved data is account-wide
+SavedVariables, so step 6 carries it across for you. On retail, save and restore on the
+same specialisation — action bars are per-spec there.
+
+[ActionBarSaver]: https://www.curseforge.com/wow/addons/action-bar-saver
 
 ## Finding your install
 

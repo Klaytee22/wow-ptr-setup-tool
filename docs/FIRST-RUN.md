@@ -69,13 +69,13 @@ WoW *is* running, step 3 will say so, which is correct). Then:
 
 | Step | Pill | Expander |
 |---|---|---|
-| Copy your addons | READY | Show the 12 file(s) — 747 B |
+| Copy your addons | READY | Show the 12 file(s) — 647 B |
 | Carry over `Config.wtf` | READY | Show the 1 file(s) — 266 B |
-| Copy account-wide addon settings | READY | Show the 5 file(s) — 214 B |
+| Copy account-wide addon settings | READY | Show the 6 file(s) — 792 B |
 | Copy per-character settings | READY | Show the 7 file(s) — 392 B |
 | Allow out-of-date addons | READY | Show the 1 file(s) — 170 B |
 
-**Footer** — `5 step(s) selected · 26 file(s) · 1.7 KB`, with *Preview changes* and
+**Footer** — `5 step(s) selected · 27 file(s) · 2.2 KB`, with *Preview changes* and
 *Apply selected steps* both enabled.
 
 Open one of those expanders. The file list should be **multi-line**, one action per
@@ -115,6 +115,12 @@ Then check, on the PTR side of the mock folder:
   point the PTR client at live realms.
 - `SET checkAddonVersion "0"` is in that file.
 - Open any copied file, e.g. the character's `AddOns.txt` — it should say `LIVE`.
+- `_classic_ptr_\WTF\Account\112233445#1\SavedVariables\Bartender4.lua` has a new
+  line near the top:
+  `["Sunderfury - Classic PTR Realm 1"] = "Sunderfury - Whitemane",` — the PTR
+  character now loads the profile its live counterpart used, and the three live keys
+  below it are untouched. That is the "Point addon profiles at your PTR character"
+  option; untick it and this line does not appear.
 - `_classic_ptr_\_ptrsetup_backups\` has one folder per step that wrote something.
 
 ## 5. Apply again

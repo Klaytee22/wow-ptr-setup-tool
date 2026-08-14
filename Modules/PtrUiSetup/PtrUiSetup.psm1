@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
+foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'SavedVariables.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
     . (Join-Path $PSScriptRoot $part)
 }
 
@@ -63,6 +63,20 @@ Export-ModuleMember -Function @(
     'Get-RelativeFile'
     'Test-FileUnchanged'
     'Format-ByteSize'
+    # SavedVariables profile keys
+    'ConvertFrom-LuaString'
+    'ConvertTo-LuaString'
+    'Read-TextFileUtf8'
+    'Find-LuaTable'
+    'Get-LuaBlockEnd'
+    'Get-LuaProfileKey'
+    'Set-LuaProfileKey'
+    'Update-LuaProfileKey'
+    'Test-LuaProfileFile'
+    'Clear-LuaProbeCache'
+    'Get-PtrSetupProfileMapping'
+    'New-ProfileKeyPlan'
+    'Merge-FileActionPlan'
     # Steps
     'New-PtrSetupContext'
     'Test-ContextReady'

@@ -81,7 +81,7 @@ Source: r/classicwowtbc, <https://www.reddit.com/r/classicwowtbc/s/fyaWbK0Q1o>
 | "Open up two Windows Explorer windows" | — | Replaced by the two client dropdowns |
 | Addons: copy all, delete any on the PTR, paste | `copy_addons` | The delete half is the **Replace the PTR addon folder** option, on by default |
 | Character `SavedVariables` | `copy_character_data` | |
-| "Addons will default to account-wide settings…" | `copy_account_saved_variables` | See deviation 1 — with this step, that manual profile-copying is unnecessary |
+| "Addons will default to account-wide settings…" | `copy_account_saved_variables` | See deviations 1 and 6 — between them, that manual profile-copying is unnecessary |
 | Client settings: `Config.wtf` | `copy_config_wtf` | See deviation 2 |
 | Character settings: `config-cache.wtf` | `copy_character_data` | |
 | Account keybindings: `bindings-cache.wtf` | `copy_account_saved_variables` | |
@@ -117,6 +117,33 @@ exists is copied, so the tool is right either way and a future rename cannot bre
 "go to WTF -> Account. Open Config.wtf" for client settings; the file is one level up,
 at `WTF\Config.wtf`. The tool uses the real location.
 
+**6. It points each addon's profile at the PTR character.** This is the other half of
+deviation 1. Copying the account SavedVariables brings the profiles across, but most
+addons pick which one to load out of an `AceDB-3.0` table keyed by character:
+
+```lua
+["profileKeys"] = {
+	["Sunderfury - Whitemane"] = "Sunderfury - Whitemane",
+},
+```
+
+The PTR realm is not `Whitemane`, so nothing matches and the addon starts on its
+default — the profile is sitting right there in the file, unused. That is exactly
+what the guide's *"Log in and go to each addon and copy the profile from your Live
+Character's profile"* is working around. Adding one line per mapped character closes
+it, so bars, unit frames and layouts come up right on the first login rather than
+after a round of profile-picking.
+
+Only files that already hold a key for the live character are touched, only that
+table is edited, and the added key is written the way WoW writes them (decimal
+escapes for anything outside printable ASCII), so a name like `Ölrún` matches and
+round-trips. It is the **Point addon profiles at your PTR character** option; untick
+it and the files are copied verbatim, as in deviation 1 alone.
+
+What this cannot reach is an addon that stores per-character data under its own
+scheme rather than through `profileKeys` — those still need a profile picked in
+game, as the guide says.
+
 **5. Deleting the PTR addon folder is reversible here.** The guide says delete; this
 copies everything it removes into a backup first, so Restore puts it back — including
 addons that only ever existed on the PTR.
@@ -143,6 +170,9 @@ Two differences are worth recording:
 - It copies `Config.wtf` whole, which is the thing deviation 2 exists to avoid: that
   carries `realmList` and `portal` over from the live client. Independent arrival at the
   same file list, with the same hazard in it, is decent evidence the deviation is right.
+- It copies `profileKeys` across unchanged, so every copied addon comes up on its
+  default profile on the PTR — the manual profile-picking the guide describes. See
+  deviation 6.
 - It handles one character per run and does not touch `AddOns.txt`, `layout-local.txt`,
   or `checkAddonVersion`. Without the first two the addons arrive but come up disabled
   and in default positions; without the third the PTR treats every copied addon as out
