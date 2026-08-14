@@ -79,8 +79,11 @@ browser, no network access at any point.
 Three separate things, from three different places.
 
 **The abilities sitting in each bar slot are server-side.** WoW keeps them on the
-character, not in any file on your disk, so they came across with Blizzard's character
-copy before this tool ran. Nothing here touches them.
+character, not in any file on your disk — which is why an addon has to read them
+through the game API to back them up at all. So this tool cannot move them, cannot
+break them, and does not try. Whether Blizzard's character copy brings them across is
+their side of the line and not something this project can promise either way; the
+paragraph below is the answer if it turns out they did not.
 
 **Where the bars are — Bartender, ElvUI, Dominos** — is a profile in
 `WTF\Account\<ACCOUNT>\SavedVariables\<Addon>.lua`, which step 6 copies.
@@ -97,13 +100,15 @@ in and go to each addon and copy the profile from your Live Character's profile"
 If an addon still comes up on defaults, it keeps its settings under a scheme this
 cannot read. Pick the profile once in its options and it sticks.
 
-**Want a safety net for the bar slots themselves?** Nothing outside the game can read
-or write them, so an external tool cannot snapshot them and screenshots are the manual
-option. The better one is an in-game addon — [ActionBarSaver] is the long-standing
-choice: `/abs save live` on your live character before you copy, and after this tool
-has run, `/abs restore live` on the PTR. Its saved data is account-wide
-SavedVariables, so step 6 carries it across for you. On retail, save and restore on the
-same specialisation — action bars are per-spec there.
+**If the bar slots themselves arrive empty**, that is Blizzard's copy, not this tool —
+and worth guarding against in advance, because the fix has to happen on the live
+character *before* you copy. Nothing outside the game can read or write those slots, so
+screenshots are the low-tech option and an in-game addon is the real one.
+[ActionBarSaver] is the long-standing choice: `/abs save live` on your live character
+first, then after this tool has run, `/abs restore live` on the PTR. Its saved data is
+account-wide SavedVariables, so step 6 carries it across for you with everything else.
+On retail, save and restore on the same specialisation — action bars are per-spec
+there.
 
 [ActionBarSaver]: https://www.curseforge.com/wow/addons/action-bar-saver
 
