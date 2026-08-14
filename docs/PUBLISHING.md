@@ -149,9 +149,7 @@ Download: https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest
 1. Right-click the zip → Properties → tick "Unblock" → OK.  (Windows blocks
    downloaded scripts otherwise and shows a scary-looking box.)
 2. Extract it to Documents or Desktop.
-3. Double-click Try-It-Safely.cmd first — it builds a fake game folder and opens
-   the tool on that, so you can click around without it touching your real install.
-4. When you are happy, double-click Start-PtrUiSetup.cmd for the real thing.
+3. Double-click Start-PtrUiSetup.cmd.
 
 Windows only. Nothing to install — it uses the PowerShell that ships with Windows.
 

@@ -555,8 +555,17 @@ function Get-WowFolderFingerprint {
     }
 
     if ($IncludeProcesses) {
-        $running = @(Get-RunningWowProcess)
-        $parts.Add("running|$(@($running.Name | Sort-Object -Unique) -join ',')")
+        # Collected with a loop rather than $running.Name. Reading a property off
+        # a collection enumerates its members, and under Set-StrictMode that
+        # throws on an empty one — so this fell over precisely when no WoW was
+        # running, which is the state the tool asks the user to be in. It threw
+        # out of the fingerprint, out of the refresh, and the client dropdowns
+        # came up empty with no obvious connection to the cause.
+        $names = [System.Collections.Generic.List[string]]::new()
+        foreach ($process in @(Get-RunningWowProcess)) {
+            if ($process -and $process.Name) { $names.Add([string]$process.Name) }
+        }
+        $parts.Add("running|$((@($names | Sort-Object -Unique)) -join ',')")
     }
 
     return ($parts -join "`n")

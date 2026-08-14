@@ -1230,10 +1230,6 @@ function Update-Options {
 }
 
 function Update-All {
-    # Anything that gets here has just re-read the folders, so the watch starts
-    # from what is there now rather than reporting the same change again.
-    if ($script:Context) { $script:Fingerprint = Get-WowFolderFingerprint -Context $script:Context }
-
     <#
     .SYNOPSIS
         Redraw everything, from scratch.
@@ -1246,13 +1242,22 @@ function Update-All {
         narrower changes (account, character, an option) call Update-Steps
         directly and throw away only what they have to.
     #>
-    Reset-Plan
-    # Each panel guarded on its own. They are independent, and one that throws
-    # used to take every panel after it down with it — a failure in the step
-    # cards would leave the client dropdowns empty, which reads as "it cannot
-    # find my game" rather than as the bug it is. The failure still shows up in
-    # the Results box; it just no longer decides what else gets drawn.
+    # Each part guarded on its own. They are independent, and one that throws
+    # used to take every part after it down with it — a failure in the step cards
+    # would leave the client dropdowns empty, which reads as "it cannot find my
+    # game" rather than as the bug it is. The failure still shows up in the
+    # Results box; it just no longer decides what else gets drawn.
+    #
+    # The fingerprint is in here rather than above the loop, where it used to sit
+    # unguarded. Anything that reaches this point has just re-read the folders,
+    # so the watch starts from what is there now rather than reporting the same
+    # change again — but that is bookkeeping for a background timer, and it has
+    # no business deciding whether the window gets drawn.
+    # Nothing here runs outside the loop, and a test holds it that way: the last
+    # two times the dropdowns came up empty it was a line sitting above it.
     foreach ($part in @(
+            { Reset-Plan },
+            { if ($script:Context) { $script:Fingerprint = Get-WowFolderFingerprint -Context $script:Context } },
             { Update-FolderStatus }, { Update-InstallCombos }, { Update-AccountCombos },
             { Update-CharacterPanel }, { Update-Steps }, { Update-Summary }, { Update-Backups })) {
         Invoke-Guarded $part

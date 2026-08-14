@@ -345,6 +345,56 @@ Describe 'Noticing changes without being asked' {
         return New-FakeContext -Root $wow
     }
 
+    function Use-RunningWow {
+        <#
+            Runs a scriptblock with the module believing these WoW processes are
+            running, and returns whatever the body returns.
+
+            The stub has to go into the module's own session state: a function
+            defined out here would never be seen, because a module function
+            resolves the names it calls against the module, not against whoever
+            called it.
+        #>
+        param([string[]] $Name, [Parameter(Mandatory)] [scriptblock] $Body)
+
+        $literal = (@($Name | ForEach-Object { "[pscustomobject]@{ Name = '$_' }" }) -join ', ')
+        $module = Get-Module PtrUiSetup
+        $original = & $module { ${function:Get-RunningWowProcess} }
+        & $module ([scriptblock]::Create("function script:Get-RunningWowProcess { @($literal) }"))
+        try { return (& $Body) }
+        finally { & $module { param($f) Set-Item -Path function:script:Get-RunningWowProcess -Value $f } $original }
+    }
+
+    It 'reads the process list at its default, with nothing running' {
+        # The bug this exists for: every test here passed -IncludeProcesses $false,
+        # so the one line the window actually runs was never executed. Reading a
+        # property off an empty collection enumerates its members and throws under
+        # Set-StrictMode, so the fingerprint fell over exactly when no WoW was
+        # running — the state the tool asks the user to be in — and took the whole
+        # refresh with it, leaving the client dropdowns empty.
+        $context = New-WatchedContext -Root $script:TestDrive
+        $stamp = Use-RunningWow -Name @() -Body { Get-WowFolderFingerprint -Context $context }
+        Assert-True ($stamp -match 'running\|') 'The process line is missing from the fingerprint.'
+    }
+
+    It 'notices the game being started and quit' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $quiet = Use-RunningWow -Name @() -Body { Get-WowFolderFingerprint -Context $context }
+        $busy = Use-RunningWow -Name @('Wow', 'WowClassic') -Body { Get-WowFolderFingerprint -Context $context }
+
+        Assert-True ($quiet -ne $busy) 'Starting the game must change the fingerprint, or the step never ticks itself off.'
+        Assert-True ($busy -match 'running\|Wow,WowClassic') "Both clients should be listed: $busy"
+        Assert-True ($quiet -match 'running\|$') "Nothing running should leave the list empty: $quiet"
+    }
+
+    It 'does not care what order the processes come back in' {
+        $context = New-WatchedContext -Root $script:TestDrive
+        $one = Use-RunningWow -Name @('Wow', 'WowClassic') -Body { Get-WowFolderFingerprint -Context $context }
+        $two = Use-RunningWow -Name @('WowClassic', 'Wow') -Body { Get-WowFolderFingerprint -Context $context }
+        Assert-Equal $one $two 'A different enumeration order must not read as a change, or the window refreshes on a timer.'
+        Assert-True ($one -match 'running\|Wow,WowClassic') "The stub did not take effect: $one"
+    }
+
     It 'is stable when nothing happens' {
         $context = New-WatchedContext -Root $script:TestDrive
         $first = Get-WowFolderFingerprint -Context $context -IncludeProcesses $false

@@ -126,8 +126,38 @@ Describe 'The window and its XAML' {
                 'Update-CharacterPanel', 'Update-Steps', 'Update-Summary', 'Update-Backups')) {
             Assert-True ($body -match [regex]::Escape($panel)) "Update-All no longer draws $panel."
         }
-        Assert-True ($body -match 'Invoke-Guarded') `
-            'Update-All calls its panels unguarded again, so the first one to throw takes the rest with it.'
+
+        # Checking that the word appears is not enough — it did, while the line
+        # that actually broke the window sat above the loop, unguarded. So: every
+        # command in here has to be lexically inside one of the guarded blocks.
+        # Invoke-Guarded itself is the exception, being the thing doing the
+        # guarding, and so is anything the loop is built from.
+        $allowed = @('Invoke-Guarded', 'ForEach-Object', 'Where-Object')
+        $offences = [System.Collections.Generic.List[string]]::new()
+        foreach ($command in $function[0].FindAll({
+                    param($node) $node -is [System.Management.Automation.Language.CommandAst]
+                }, $true)) {
+
+            $name = $command.GetCommandName()
+            if (-not $name -or $allowed -contains $name) { continue }
+
+            # Walk up: inside a scriptblock literal means inside a guarded part.
+            $guarded = $false
+            $parent = $command.Parent
+            while ($parent -and $parent -ne $function[0]) {
+                if ($parent -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) {
+                    $guarded = $true
+                    break
+                }
+                $parent = $parent.Parent
+            }
+            if (-not $guarded) {
+                $offences.Add(("line {0}: {1}" -f $command.Extent.StartLineNumber, $command.Extent.Text))
+            }
+        }
+
+        Assert-Equal 0 $offences.Count ("Update-All runs something outside the guarded loop, so it can still take " +
+            "the whole redraw down with it:`n  " + ($offences -join "`n  "))
     }
 
     It 'connects every option checkbox to an option that exists' {
@@ -260,7 +290,7 @@ Describe 'The double-click launchers' {
 
     It 'every launcher points at a script that exists' {
         $launchers = @(Get-ChildItem -LiteralPath $repoRoot -Filter '*.cmd' -File)
-        Assert-True ($launchers.Count -ge 3) "Expected the launchers, found $($launchers.Count)."
+        Assert-True ($launchers.Count -ge 2) "Expected the launchers, found $($launchers.Count)."
 
         foreach ($launcher in $launchers) {
             $text = Get-Content -LiteralPath $launcher.FullName -Raw
@@ -275,11 +305,19 @@ Describe 'The double-click launchers' {
 
     It 'opens the window on a thread WPF will accept' {
         # -STA is the whole reason these files exist rather than a bare .ps1.
-        foreach ($name in @('Start-PtrUiSetup.cmd', 'Try-It-Safely.cmd')) {
-            $text = Get-Content -LiteralPath (Join-Path $repoRoot $name) -Raw
-            Assert-True ($text -match '-STA') "$name must pass -STA or WPF will refuse to start."
-            Assert-True ($text -match '-ExecutionPolicy Bypass') "$name must not be blocked by execution policy."
+        # Worked out from what each launcher runs rather than from a list of
+        # names, so adding or dropping one cannot leave this checking a file
+        # that is no longer there — or quietly not checking a new one.
+        $opensWindow = 0
+        foreach ($launcher in (Get-ChildItem -LiteralPath $repoRoot -Filter '*.cmd' -File)) {
+            $text = Get-Content -LiteralPath $launcher.FullName -Raw
+            Assert-True ($text -match '-ExecutionPolicy Bypass') `
+                "$($launcher.Name) must not be blocked by execution policy."
+            if ($text -notmatch 'PtrUiSetup\.ps1') { continue }
+            $opensWindow++
+            Assert-True ($text -match '-STA') "$($launcher.Name) must pass -STA or WPF will refuse to start."
         }
+        Assert-True ($opensWindow -ge 1) 'No launcher opens the window at all.'
     }
 }
 

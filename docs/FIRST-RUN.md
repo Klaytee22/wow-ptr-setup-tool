@@ -1,25 +1,23 @@
 ﻿# First run on Windows
 
-The window has never been opened. Everything underneath it is well tested — the file
-operations, the `Config.wtf` merge, backups and undo all have tests, and the whole
-mock walkthrough below has been run headlessly and asserted on disk. What has never
-run is WPF itself: rendering, layout, and what happens when you click things.
-
-So this page is two things at once — a walkthrough of the tool, and a checklist for
-the first person to see it on a screen. Do it against the **mock install**, not your
-real game folder. Nothing here touches your actual WoW install.
+This is the walkthrough for checking a change against a fake install, with the exact
+numbers to expect at each stage — useful after touching anything in the window, and as
+a way to see what the tool does without pointing it at a real game folder. Nothing here
+touches your actual WoW install.
 
 ## 1. Build the fake install and open the window
 
-**Double-click `Try-It-Safely.cmd`** in the repo folder.
+From a **PowerShell** prompt in the repo folder:
+
+```powershell
+.\tools\New-MockWowFolder.ps1 -Launch -Force
+```
 
 That builds `PtrUiSetup-Mock\World of Warcraft` on your desktop and opens the window
 pointed at it, rebuilding the folder from scratch each time you run it.
 
-> Double-clicking a `.ps1` will not work — Windows opens those in Notepad. So does
-> pasting `.\tools\New-MockWowFolder.ps1` into Command Prompt. The `.cmd` files are
-> the clickable entry points; a terminal has to be **PowerShell**, where
-> `.\tools\New-MockWowFolder.ps1 -Launch -Force` does the same thing.
+> It has to be PowerShell, not Command Prompt — pasting a `.ps1` path into Command
+> Prompt opens it in Notepad, and so does double-clicking one.
 
 It creates a live client (`_classic_`: 5 addons, 3 characters, full settings) and a
 PTR client (`_classic_ptr_`: launched once, one copied character, one stale addon).

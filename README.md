@@ -33,9 +33,8 @@ not in `Program Files`. Then **double-click one of these**:
 
 | Double-click | What happens |
 |---|---|
-| **`Try-It-Safely.cmd`** | Builds a fake game folder on your desktop and opens the window on it. **Start here** — it cannot touch your real install. |
-| **`Start-PtrUiSetup.cmd`** | The window, against your actual game folder. |
-| `Run-Tests.cmd` | Runs the test suite. |
+| **`Start-PtrUiSetup.cmd`** | The window. This is the one you want. |
+| `Run-Tests.cmd` | Runs the test suite — needs no game folder, and answers "is it me or the tool?" |
 
 Nothing to install. It runs on the Windows PowerShell that ships with Windows, and the
 launchers pass `-ExecutionPolicy Bypass` for that one process, so no machine-wide
@@ -51,9 +50,6 @@ setting changes. Keep the folder as it comes — `Start-PtrUiSetup.cmd` looks fo
 > .\PtrUiSetup.ps1 -Path 'D:\Games\World of Warcraft'  # skip straight to a folder
 > .\PtrUiSetup.ps1 -ListSteps                       # print the steps, no window
 > ```
-
-[`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) walks the fake install through end to end,
-with the exact numbers you should see at each stage.
 
 You should not need a command line at all. The window has a folder box with **Browse**
 and **Detect** next to it, and remembers the folder you settle on, so the second launch
@@ -221,8 +217,7 @@ copy.
 ## Layout
 
 ```
-Try-It-Safely.cmd             double-click: fake install, then the window
-Start-PtrUiSetup.cmd          double-click: the window, on your real folder
+Start-PtrUiSetup.cmd          double-click: the window
 Run-Tests.cmd                 double-click: the test suite
 PtrUiSetup.ps1                the window: renders state, calls the module
 ui/MainWindow.xaml            the window's layout
@@ -252,10 +247,10 @@ Invoke-PtrSetup -Context $context -StepId copy_addons
 Get-PtrSetupBackup -InstallPath $context.Target.Path
 ```
 
-## Trying it safely: the mock install
+## Trying it against a fake install
 
-Before pointing it at your real game folder, build a fake one — **double-click
-`Try-It-Safely.cmd`**, or from a PowerShell prompt:
+If you would rather not point it at your real game folder first, build a fake one. From
+a **PowerShell** prompt in the repo folder:
 
 ```powershell
 .\tools\New-MockWowFolder.ps1 -Launch
