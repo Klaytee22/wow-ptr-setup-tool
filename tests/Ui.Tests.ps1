@@ -75,6 +75,61 @@ Describe 'The window and its XAML' {
         }
     }
 
+    It 'notices at startup when the layout on disk does not match the script' {
+        # The static check above holds the repo together. This is the same check
+        # run at launch against whatever pair of files the user actually has,
+        # because the failure that reaches them is a half-updated working copy:
+        # the script wants a control the XAML has not got, and the property set
+        # on $null aborts whichever handler it lands in. Landing in the startup
+        # scan leaves the folder box filled in and the client dropdowns empty.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $function = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Get-MissingControl'
+                }, $true))
+        Assert-Equal 1 $function.Count 'Expected one Get-MissingControl in the window script.'
+        . ([scriptblock]::Create($function[0].Extent.Text))
+
+        # A complete set of controls is clean.
+        $complete = @{}
+        foreach ($name in (Get-XamlName -Path $xamlPath)) { $complete[$name] = [pscustomobject]@{ Name = $name } }
+        Assert-Equal 0 @(Get-MissingControl -Control $complete -ScriptPath $scriptPath).Count `
+            'The real XAML should satisfy the real script.'
+
+        # A stale layout is caught, whether the name is absent or resolved to null.
+        $stale = @{}
+        foreach ($name in $complete.Keys) { $stale[$name] = $complete[$name] }
+        $stale.Remove('ProfileKeysOption')
+        Assert-Equal @('ProfileKeysOption') @(Get-MissingControl -Control $stale -ScriptPath $scriptPath)
+
+        $nulled = @{}
+        foreach ($name in $complete.Keys) { $nulled[$name] = $complete[$name] }
+        $nulled['StepsPanel'] = $null
+        Assert-Equal @('StepsPanel') @(Get-MissingControl -Control $nulled -ScriptPath $scriptPath)
+    }
+
+    It 'draws each panel independently, so one failure cannot blank the rest' {
+        # Update-All used to be a straight run of seven calls. The first one to
+        # throw stopped the other six, so a broken step card emptied the client
+        # dropdowns as well and the tool looked like it had not found the game.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $function = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Update-All'
+                }, $true))
+        Assert-Equal 1 $function.Count 'Expected one Update-All in the window script.'
+
+        $body = $function[0].Extent.Text
+        foreach ($panel in @('Update-FolderStatus', 'Update-InstallCombos', 'Update-AccountCombos',
+                'Update-CharacterPanel', 'Update-Steps', 'Update-Summary', 'Update-Backups')) {
+            Assert-True ($body -match [regex]::Escape($panel)) "Update-All no longer draws $panel."
+        }
+        Assert-True ($body -match 'Invoke-Guarded') `
+            'Update-All calls its panels unguarded again, so the first one to throw takes the rest with it.'
+    }
+
     It 'connects every option checkbox to an option that exists' {
         # Three files have to agree for a checkbox to do anything: the XAML names
         # it, $optionMap says which option it sets, and the context has to have

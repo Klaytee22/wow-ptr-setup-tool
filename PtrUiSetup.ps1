@@ -89,6 +89,55 @@ foreach ($node in $xaml.SelectNodes('//*[@*[local-name()="Name"]]')) {
     $ui[$attribute.Value] = $window.FindName($attribute.Value)
 }
 
+function Get-MissingControl {
+    <#
+    .SYNOPSIS
+        Controls this script reaches for that the layout does not define.
+
+    .DESCRIPTION
+        The suite checks this pairing on every commit, but the copy on a user's
+        disk is a different question: a pull that updates the script and leaves a
+        modified MainWindow.xaml behind gives two files that disagree, and the
+        first symptom is a property being set on $null somewhere unrelated. That
+        aborts whichever handler it lands in — and when it lands in the startup
+        scan, the folder box fills in and the client dropdowns stay empty, which
+        looks like detection failing rather than a stale file.
+
+        Reading our own source back is the cheapest way to know: the same regex
+        the test uses, run against the two files actually on the disk.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [hashtable] $Control,
+        [Parameter(Mandatory)] [string] $ScriptPath
+    )
+
+    $text = [System.IO.File]::ReadAllText($ScriptPath, [System.Text.Encoding]::UTF8)
+    $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($match in [regex]::Matches($text, '\$ui\.([A-Za-z][A-Za-z0-9_]*)')) {
+        $null = $names.Add($match.Groups[1].Value)
+    }
+
+    $missing = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in ($names | Sort-Object)) {
+        if (-not $Control.ContainsKey($name) -or $null -eq $Control[$name]) { $missing.Add($name) }
+    }
+    return @($missing)
+}
+
+$missingControls = @(Get-MissingControl -Control $ui -ScriptPath $PSCommandPath)
+if ($missingControls.Count) {
+    $detail = ($missingControls -join ', ')
+    Write-Host ''
+    Write-Host '  ui/MainWindow.xaml does not match PtrUiSetup.ps1.' -ForegroundColor Red
+    Write-Host "  Missing from the layout: $detail" -ForegroundColor Red
+    Write-Host ''
+    Write-Host '  The usual cause is a half-updated copy — run "git status" to check for' -ForegroundColor Yellow
+    Write-Host '  local edits to ui/MainWindow.xaml, or re-clone the repository.' -ForegroundColor Yellow
+    Write-Host ''
+    throw "ui/MainWindow.xaml is missing: $detail"
+}
+
 $script:Context = $null
 $script:Installs = @()
 # The folder box is the single source of truth for where to look. -Path adds
@@ -1198,13 +1247,16 @@ function Update-All {
         directly and throw away only what they have to.
     #>
     Reset-Plan
-    Update-FolderStatus
-    Update-InstallCombos
-    Update-AccountCombos
-    Update-CharacterPanel
-    Update-Steps
-    Update-Summary
-    Update-Backups
+    # Each panel guarded on its own. They are independent, and one that throws
+    # used to take every panel after it down with it — a failure in the step
+    # cards would leave the client dropdowns empty, which reads as "it cannot
+    # find my game" rather than as the bug it is. The failure still shows up in
+    # the Results box; it just no longer decides what else gets drawn.
+    foreach ($part in @(
+            { Update-FolderStatus }, { Update-InstallCombos }, { Update-AccountCombos },
+            { Update-CharacterPanel }, { Update-Steps }, { Update-Summary }, { Update-Backups })) {
+        Invoke-Guarded $part
+    }
 }
 
 function Invoke-Rescan {
@@ -1222,7 +1274,10 @@ function Invoke-Rescan {
     $script:Installs = @(Get-WowInstall -Path $paths -SkipDefaultLocations)
     if ($null -eq $script:Context) {
         $script:Context = Initialize-PtrSetupContext -Install $script:Installs
-        Update-Options
+        # Guarded on its own for the same reason: which way a checkbox is ticked
+        # is not worth losing the client dropdowns over, and sitting here
+        # unguarded it could take the whole scan with it.
+        Invoke-Guarded { Update-Options }
     }
     else {
         # Keep the current selection if those folders are still there.
