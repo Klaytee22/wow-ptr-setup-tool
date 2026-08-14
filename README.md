@@ -114,24 +114,61 @@ cannot read. Pick the profile once in its options and it sticks.
 ### Getting the bar slots across anyway
 
 Nothing outside the game can read or write those slots, so this has to be done by an
-in-game addon. [ActionBarSaver] is the long-standing one, and it fits this tool exactly:
-it keeps its data in account-wide SavedVariables, which step 6 already copies. **You do
-not need to copy your character again** — the whole thing works from where you are:
+in-game addon, and the addon's own saved data is then just another file this tool
+copies — both account-level and character-level `SavedVariables` are covered, so
+whichever scope the addon uses comes across.
 
-1. **On live:** install ActionBarSaver, log in on the character whose bars you want,
-   and run `/abs save live`.
-2. **Log out.** WoW writes SavedVariables on exit, so the file does not exist until you
-   do. Skipping this is the one way to get a confusing result.
-3. **Run this tool** — it copies the addon and its saved data over with everything else.
-4. **On the PTR:** log in and run `/abs restore live`.
+**Pick a build that matches your client.** This is the step that goes wrong: the
+long-recommended [Action Bar Saver] was last updated in 2010 and simply does not load on
+a modern client, so its `/abs` command does not exist and it looks as though nothing was
+installed. Two that are maintained for the Anniversary clients:
+
+- [ActionBarSaver: Reloaded] — a rewrite of the original, with separate
+  **Anniversary-Era** and **Anniversary-TBC** downloads. Note that it files sets by
+  **class** rather than by character.
+- [TBCA Action Bars Saver] — built for Classic/TBC Anniversary, ten bars, and it copes
+  with spells that are missing on the destination.
+
+The order that works, without copying your character again:
+
+1. **On live:** install it, log in on the character whose bars you want, and save a
+   profile with whatever command the addon uses.
+2. **Log out.** WoW writes `SavedVariables` on exit, so the file does not exist until
+   you do. Skipping this is the most common way to get an empty result.
+3. **Run this tool** — the addon and its saved data go over with everything else.
+4. **On the PTR:** log in and restore the profile.
 
 Do step 1 *before* the copy next time and the bars are right on the first login.
 
-On retail, save and restore on the same specialisation — action bars are per-spec
-there. Screenshots remain the no-addon option, and are worth taking anyway before a
-first attempt.
+**If the addon's command does nothing on the PTR** — as though it were never installed —
+then it did not load, which is a different problem from the profile being missing. Check
+in this order:
 
-[ActionBarSaver]: https://www.curseforge.com/wow/addons/action-bar-saver
+1. **Did you install it on live after the last time you ran this tool?** Step 4 copies
+   the addon folder as it stood when it ran. Install something on live afterwards and it
+   is simply not on the PTR yet. Re-run the tool; the window notices the live `AddOns`
+   folder changing on its own, so the addon step will already be offering to copy again.
+   This is far and away the most common cause.
+2. **Is the folder there?** Look for `Interface\AddOns\<Addon>\` inside the PTR client
+   folder. Nothing there means point 1.
+3. **Is it ticked?** At character select, open **AddOns**. A copied addon that is listed
+   but unticked just needs enabling.
+4. **Does the build match the client?** An addon built for retail will not load on an
+   Anniversary client however out-of-date loading is set.
+5. **Is out-of-date loading on?** Confirm `SET checkAddonVersion "0"` is in the PTR's
+   `WTF\Config.wtf` — step 8 sets it, and without it everything built for live reads as
+   out of date.
+
+Errors from the addon while *saving* on live are a different matter and usually harmless:
+macros are the part these addons handle least well, since a macro that does not exist on
+the destination cannot be placed. Bars restore; a few macro slots may not.
+
+On retail, save and restore on the same specialisation — action bars are per-spec there.
+Screenshots remain the no-addon option, and are worth taking before a first attempt.
+
+[Action Bar Saver]: https://www.curseforge.com/wow/addons/action-bar-saver
+[ActionBarSaver: Reloaded]: https://www.curseforge.com/wow/addons/actionbarsaver-reloaded
+[TBCA Action Bars Saver]: https://www.curseforge.com/wow/addons/tbca-action-bars-saver-copy-save-restore
 
 ## What about Blizzard's "Copy Account Data" button?
 
