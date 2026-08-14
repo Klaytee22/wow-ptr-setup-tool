@@ -83,7 +83,13 @@ function Initialize-PtrSetupContext {
         [psobject[]] $Install
     )
 
-    if (-not $Install) { $Install = @(Get-WowInstall -Path $Path) }
+    # Tested for the parameter, not for the list being empty: the window passes
+    # what its own scan found, and on a machine with no WoW that is legitimately
+    # empty. Reading that as "not supplied" sent it off to scan the registry and
+    # every fixed drive a second time, against the user's explicit choice of
+    # folder.
+    if (-not $PSBoundParameters.ContainsKey('Install')) { $Install = @(Get-WowInstall -Path $Path) }
+    else { $Install = @($Install) }
     $pair = Select-WowInstallPair -Install $Install
 
     $context = New-PtrSetupContext -Source $pair.Source -Target $pair.Target

@@ -5,9 +5,22 @@ REM keeps an unsigned script from being blocked without changing any machine
 REM setting.
 setlocal
 powershell.exe -NoProfile -NoLogo -ExecutionPolicy Bypass -STA -File "%~dp0PtrUiSetup.ps1" %*
-if errorlevel 1 (
+
+REM Compared against 0 rather than "if errorlevel 1". That form is a
+REM greater-than-or-equal test, so it misses the negative codes a process gets
+REM when it is killed or crashes outright - which is exactly the case where the
+REM console must not vanish before anyone has read it.
+if not "%ERRORLEVEL%"=="0" (
     echo.
-    echo The tool exited with an error. The message above says why.
+    echo ---------------------------------------------------------------
+    echo The tool exited with code %ERRORLEVEL%.
+    echo.
+    echo The message above says why. It is also saved to:
+    echo   %TEMP%\ptrsetup-error.log
+    echo.
+    echo Send that file to whoever gave you this.
+    echo ---------------------------------------------------------------
+    echo.
     pause
 )
 endlocal

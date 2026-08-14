@@ -32,6 +32,52 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Anything that gets out of the window's own guards ends the script, and when it
+# has been double-clicked the console goes with it — the message is on screen for
+# whatever fraction of a second the process has left. This catches it, writes it
+# somewhere that survives, and says where. A trap rather than a try around the
+# file because this script is top-level start to finish: a trap covers every line
+# of it without indenting any of them.
+trap {
+    $record = $_
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add("WoW PTR UI Setup — startup failed")
+    $lines.Add((Get-Date).ToString('u'))
+    $lines.Add('')
+    $lines.Add("Message : $($record.Exception.Message)")
+    $lines.Add("Type    : $($record.Exception.GetType().FullName)")
+    if ($record.InvocationInfo) {
+        $lines.Add("Where   : $($record.InvocationInfo.ScriptName):$($record.InvocationInfo.ScriptLineNumber)")
+        if ($record.InvocationInfo.Line) { $lines.Add("Line    : $($record.InvocationInfo.Line.Trim())") }
+    }
+    $lines.Add('')
+    $lines.Add('Environment')
+    $lines.Add("  PowerShell : $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))")
+    $lines.Add("  OS         : $([System.Environment]::OSVersion.VersionString)")
+    $lines.Add("  64-bit     : $([System.Environment]::Is64BitProcess)")
+    $lines.Add("  Apartment  : $([System.Threading.Thread]::CurrentThread.GetApartmentState())")
+    $lines.Add("  Folder     : $PSScriptRoot")
+    $lines.Add('')
+    $lines.Add('Stack')
+    $lines.Add([string]$record.ScriptStackTrace)
+
+    # Temp rather than next to the script: the folder it was extracted into may
+    # not be writable, and a log that cannot be written explains nothing.
+    $logPath = Join-Path $env:TEMP 'ptrsetup-error.log'
+    try { [System.IO.File]::WriteAllLines($logPath, [string[]]$lines) } catch { $logPath = '(could not be written)' }
+
+    Write-Host ''
+    Write-Host '  WoW PTR UI Setup could not start.' -ForegroundColor Red
+    Write-Host ''
+    foreach ($line in $lines) { Write-Host "  $line" -ForegroundColor DarkRed }
+    Write-Host ''
+    Write-Host "  Saved to: $logPath" -ForegroundColor Yellow
+    Write-Host '  Send that file to whoever gave you this and it will say what went wrong.' -ForegroundColor Yellow
+    Write-Host ''
+    exit 1
+}
+
 Import-Module (Join-Path $PSScriptRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1') -Force
 
 if ($ListSteps) {

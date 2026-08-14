@@ -404,6 +404,63 @@ Describe 'Planning on another thread' {
     }
 }
 
+Describe 'A machine with no WoW on it' {
+    <#
+        The state a fresh PC is in, and the one the window starts in before it
+        has found anything. Everything here has to answer rather than throw: an
+        exception on this path escapes into the startup scan, and what the user
+        sees is a window that opens and closes.
+    #>
+
+    It 'builds a context out of nothing at all' {
+        $context = Initialize-PtrSetupContext -Install @()
+        Assert-Equal $null $context.Source
+        Assert-Equal $null $context.Target
+        Assert-Equal 0 @(Get-ContextCharacter -Context $context).Count
+        Assert-False (Test-ContextReady -Context $context)
+    }
+
+    It 'takes an empty install list at its word instead of scanning again' {
+        # -Install @() means "I looked and there is nothing", not "I did not
+        # look". Reading it as the second sent detection off across the registry
+        # and every fixed drive, ignoring the folder the user had chosen.
+        $module = Get-Module PtrUiSetup
+        $original = & $module { ${function:Get-WowInstall} }
+        & $module { function script:Get-WowInstall { throw 'Scanned again when it should not have.' } }
+        try {
+            $context = Initialize-PtrSetupContext -Install @()
+            Assert-Equal $null $context.Source
+        }
+        finally {
+            & $module { param($f) Set-Item -Path function:script:Get-WowInstall -Value $f } $original
+        }
+    }
+
+    It 'gives every step a status without throwing' {
+        $context = Initialize-PtrSetupContext -Install @()
+        foreach ($step in (Get-PtrSetupStep)) {
+            $status = Get-PtrSetupStepStatus -Step $step -Context $context
+            Assert-True ($status.State -in @('blocked', 'ready', 'done')) "$($step.Id) returned $($status.State)."
+        }
+    }
+
+    It 'fingerprints an empty context, processes and all' {
+        # The default, not -IncludeProcesses $false: this is the call the window
+        # makes on its timer, and it runs before anything has been found.
+        $context = Initialize-PtrSetupContext -Install @()
+        $stamp = Get-WowFolderFingerprint -Context $context
+        Assert-True ($stamp -match 'Source\|none') "Expected both sides recorded as absent: $stamp"
+        Assert-True ($stamp -match 'running\|') 'The process line is missing.'
+    }
+
+    It 'plans nothing rather than failing' {
+        $context = Initialize-PtrSetupContext -Install @()
+        foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+            Assert-Equal 0 @(New-PtrSetupStepPlan -Step $step -Context $context).Count "$($step.Id) planned work with no clients."
+        }
+    }
+}
+
 Describe 'A context with holes in it' {
     <#
         The module runs under Set-StrictMode -Version Latest, where .Count on
