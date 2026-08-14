@@ -113,6 +113,8 @@ $script:PlanTotal = 0
 $script:PlanDone = 0
 $script:RunIndex = 0
 $script:RunTotal = 0
+$script:RunJob = $null
+$script:RunTimer = $null
 $script:AsyncBroken = $false
 # Watching the folders, so pressing Rescan is a fallback rather than the way to
 # use the tool.
@@ -710,9 +712,13 @@ function Update-InstallCombos {
     if ($script:Context.Target -and -not $script:Context.Target.HasBeenLaunched) {
         $warnings.Add('The PTR client has no WTF folder yet — launch it once, quit, then press Rescan.')
     }
-    if ($script:Context.Source -and $script:Context.Target -and $script:Context.Source.Line -ne $script:Context.Target.Line) {
-        $warnings.Add('Heads up: those two clients are different versions of the game, so settings may not carry over cleanly.')
-    }
+    # There was a warning here when the two clients' game lines differed. It has
+    # been removed: the line comes from .flavor.info, and Blizzard does not
+    # always set it to what the client really is — _ptr2_ reports itself as
+    # retail while serving as the Anniversary PTR. A warning that fires on a
+    # perfectly normal pairing is worse than no warning, and there is no reliable
+    # way to tell from the folder. The two dropdowns say which clients are
+    # selected; that is the honest amount to claim.
 
     $ui.InstallWarning.Text = ($warnings -join '  ')
     $ui.InstallWarning.Visibility = if ($warnings.Count) { 'Visible' } else { 'Collapsed' }
@@ -1225,8 +1231,24 @@ function Invoke-Rescan {
 }
 
 function Invoke-Run {
+    <#
+    .SYNOPSIS
+        Preview or apply the ticked steps, on the worker, without freezing.
+
+    .DESCRIPTION
+        Applying used to run on the UI thread. Copying pumps the window between
+        files, but the phases around it do not — validating the whole batch,
+        copying every replaced file into the backup, writing a manifest listing
+        thousands of paths — and on a real install that is long enough for
+        Windows to grey the window out and call it not responding.
+
+        It runs on the same background runspace the planning uses. Progress comes
+        back through a synchronized hashtable the worker writes and a timer here
+        reads, so the only thing crossing threads is a table of numbers.
+    #>
     param([switch] $PreviewOnly)
 
+    if ($script:Running) { return }
     $stepIds = @((Get-PtrSetupStep | Where-Object { $script:Selected.Contains($_.Id) }).Id)
     if (-not $stepIds) { return }
 
@@ -1248,19 +1270,129 @@ function Invoke-Run {
         if ($answer -ne 'OK') { return }
     }
 
+    $script:Running = $true
     $ui.ApplyButton.IsEnabled = $false
     $ui.PreviewButton.IsEnabled = $false
     $ui.ProgressBar.Value = 0
-    $script:Running = $true
     Write-Result $(if ($PreviewOnly) { '--- Preview (nothing is written) ---' } else { '--- Applying ---' })
 
-    # One bar across the whole run rather than one per step: ticking five steps
-    # and watching the bar restart five times tells you nothing about how far in
-    # you are. Each step gets its own share of the width.
-    $script:RunIndex = 0
-    $script:RunTotal = $stepIds.Count
+    $runspace = Get-PlanWorker
+    if (-not $runspace) {
+        Invoke-RunHere -StepId $stepIds -PreviewOnly:$PreviewOnly
+        return
+    }
+
+    # Written by the worker, read by the timer below. A hashtable of numbers is
+    # the whole of what crosses between the two.
+    $progress = [hashtable]::Synchronized(@{
+            Title = ''; Index = 0; Total = @($stepIds).Count; Done = 0; Files = 0
+        })
+
+    $shell = [powershell]::Create()
+    $shell.Runspace = $runspace
+    $null = $shell.AddScript({
+            param($Snapshot, $StepId, $PreviewOnly, $Progress)
+            $context = ConvertFrom-PtrSetupSnapshot -Snapshot $Snapshot
+            $ids = @($StepId)
+            $index = 0
+            $results = New-Object System.Collections.ArrayList
+            foreach ($id in $ids) {
+                $step = Get-PtrSetupStep -Id $id
+                $Progress['Title'] = $step.Title
+                $Progress['Index'] = $index
+                $Progress['Total'] = $ids.Count
+                $Progress['Done'] = 0
+                $Progress['Files'] = 0
+
+                $result = Invoke-PtrSetupStep -Step $step -Context $context -PreviewOnly:$PreviewOnly -OnProgress {
+                    param($Done, $FileCount)
+                    $Progress['Done'] = $Done
+                    $Progress['Files'] = $FileCount
+                }
+                $null = $results.Add([pscustomobject]@{
+                        Title = $step.Title; Ok = [bool]$result.Ok; Message = [string]$result.Message
+                    })
+                $index++
+            }
+            return $results.ToArray()
+        })
+    $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $script:Context))
+    $null = $shell.AddArgument($stepIds)
+    $null = $shell.AddArgument([bool]$PreviewOnly)
+    $null = $shell.AddArgument($progress)
+
+    $script:RunJob = [pscustomobject]@{
+        Shell    = $shell
+        Handle   = $shell.BeginInvoke()
+        Progress = $progress
+    }
+
+    if (-not $script:RunTimer) {
+        $script:RunTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:RunTimer.Interval = [TimeSpan]::FromMilliseconds(120)
+        $script:RunTimer.Add_Tick({ Invoke-Guarded { Receive-Run } })
+    }
+    $script:RunTimer.Start()
+}
+
+function Receive-Run {
+    <#
+    .SYNOPSIS
+        Show how far the run has got, and finish up when it is done.
+    #>
+    $job = $script:RunJob
+    if (-not $job) {
+        $script:RunTimer.Stop()
+        return
+    }
+
+    # One bar across the whole run: each step gets its share of the width, so it
+    # never restarts part way through.
+    $progress = $job.Progress
+    $total = [double]([math]::Max(1, $progress['Total']))
+    $files = [double]([math]::Max(1, $progress['Files']))
+    $withinStep = [math]::Min(1.0, $progress['Done'] / $files)
+    $ui.ProgressBar.Value = [math]::Min(100, 100 * (($progress['Index'] + $withinStep) / $total))
+    if ($progress['Title']) {
+        $ui.SummaryText.Text = "Step $([int]$progress['Index'] + 1) of $([int]$progress['Total']): $($progress['Title'])"
+    }
+
+    if (-not $job.Handle.IsCompleted) { return }
+    $script:RunTimer.Stop()
+
     try {
-        foreach ($stepId in $stepIds) {
+        $results = @($job.Shell.EndInvoke($job.Handle))
+        $errors = @($job.Shell.Streams.Error)
+        if ($errors.Count) { Write-Result "[fail] $($errors[0])" }
+        foreach ($result in $results) {
+            $mark = if ($result.Ok) { '[ok]  ' } else { '[fail]' }
+            Write-Result "$mark $($result.Title) — $($result.Message)"
+        }
+    }
+    catch {
+        Write-Result "[fail] $($_.Exception.Message)"
+    }
+    finally {
+        try { $job.Shell.Dispose() } catch { <# nothing to dispose #> }
+        $script:RunJob = $null
+        Complete-Run
+    }
+}
+
+function Invoke-RunHere {
+    <#
+    .SYNOPSIS
+        The same run on this thread, for a machine that will not give a runspace.
+    #>
+    param(
+        [Parameter(Mandatory)] [string[]] $StepId,
+        [switch] $PreviewOnly
+    )
+
+    $script:RunIndex = 0
+    $script:RunTotal = @($StepId).Count
+    try {
+        foreach ($stepId in $StepId) {
             $step = Get-PtrSetupStep -Id $stepId
             $ui.SummaryText.Text = "Step $($script:RunIndex + 1) of $($script:RunTotal): $($step.Title)"
             Update-UiNow
@@ -1272,7 +1404,6 @@ function Invoke-Run {
                 Update-UiNow
             }
             $script:RunIndex++
-            $ui.ProgressBar.Value = [math]::Min(100, 100 * $script:RunIndex / $script:RunTotal)
 
             $mark = if ($result.Ok) { '[ok]  ' } else { '[fail]' }
             Write-Result "$mark $($step.Title) — $($result.Message)"
@@ -1283,10 +1414,18 @@ function Invoke-Run {
         Write-Result "[fail] $($_.Exception.Message)"
     }
     finally {
-        $script:Running = $false
-        $ui.ProgressBar.Value = 0
-        Update-All
+        Complete-Run
     }
+}
+
+function Complete-Run {
+    <#
+    .SYNOPSIS
+        Put the window back together after a run, however it ended.
+    #>
+    $script:Running = $false
+    $ui.ProgressBar.Value = 0
+    Update-All
 }
 
 # --------------------------------------------------------------------------
@@ -1457,6 +1596,7 @@ $window.Add_Closed({
         # The worker holds a thread; without this the console lingers after the
         # window has gone.
         if ($script:WatchTimer) { $script:WatchTimer.Stop() }
+        if ($script:RunTimer) { $script:RunTimer.Stop() }
         Stop-PlanRequest
         Clear-AbandonedRequest
         if ($script:Worker) {

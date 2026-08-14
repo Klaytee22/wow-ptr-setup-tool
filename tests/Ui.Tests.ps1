@@ -708,3 +708,121 @@ Describe 'Watching the folders' {
         Assert-True ($defined -contains 'RescanButton') 'Rescan stays, as the way to re-read everything.'
     }
 }
+
+Describe 'Applying on the worker' {
+    <#
+        Applying used to run on the UI thread. Copying pumps the window between
+        files, but validating the batch, copying every replaced file into the
+        backup and writing the manifest do not — long enough on a real install
+        for Windows to grey the window out. It runs on the background runspace
+        now, and this drives the actual scriptblock the window sends.
+    #>
+
+    function Get-RunScript {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $run = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Run'
+                }, $true))
+        Assert-Equal 1 $run.Count
+        $added = @($run[0].FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Value -eq 'AddScript'
+                }, $true))
+        Assert-Equal 1 $added.Count 'Expected exactly one scriptblock to be sent to the worker.'
+        return $added[0].Arguments[0].ScriptBlock.GetScriptBlock()
+    }
+
+    It 'copies the files and reports its progress' {
+        $mockBuilder = Join-Path $repoRoot 'tools/New-MockWowFolder.ps1'
+        $null = & $mockBuilder -Path $script:TestDrive -Force -Quiet
+        $installs = @(Get-WowInstall -Path (Join-Path $script:TestDrive 'World of Warcraft') -SkipDefaultLocations)
+        $context = Initialize-PtrSetupContext -Install $installs
+        $autoIds = @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)
+
+        $progress = [hashtable]::Synchronized(@{ Title = ''; Index = 0; Total = 0; Done = 0; Files = 0 })
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.ThreadOptions = 'ReuseThread'
+        $runspace.Open()
+        try {
+            $loader = [powershell]::Create()
+            $loader.Runspace = $runspace
+            $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument(
+                (Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'))
+            $null = $loader.Invoke()
+            Assert-Equal 0 @($loader.Streams.Error).Count "The worker could not load the module: $($loader.Streams.Error)"
+            $loader.Dispose()
+
+            $shell = [powershell]::Create()
+            $shell.Runspace = $runspace
+            $null = $shell.AddScript((Get-RunScript))
+            $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $context))
+            $null = $shell.AddArgument($autoIds)
+            $null = $shell.AddArgument($false)
+            $null = $shell.AddArgument($progress)
+
+            $results = @($shell.EndInvoke($shell.BeginInvoke()))
+            Assert-Equal 0 @($shell.Streams.Error).Count "The worker reported: $($shell.Streams.Error)"
+            $shell.Dispose()
+
+            Assert-Equal $autoIds.Count $results.Count 'Every step should come back with a result.'
+            foreach ($result in $results) {
+                Assert-True $result.Ok "$($result.Title) failed on the worker: $($result.Message)"
+                Assert-True ([bool]$result.Title) 'A result needs a title to show.'
+            }
+
+            # The progress table is what the window's bar is driven from.
+            Assert-Equal $autoIds.Count $progress['Total']
+            Assert-True ($progress['Index'] -ge $autoIds.Count - 1) 'It should have got to the last step.'
+            Assert-True ([bool]$progress['Title']) 'The bar needs the step name to show alongside it.'
+
+            # And the copy really happened, on the worker thread.
+            $ptrAddons = @(Get-ChildItem -LiteralPath $context.Target.AddOns -Directory).Name | Sort-Object
+            Assert-Equal @('Bartender4', 'Details', 'Plater', 'Questie', 'WeakAuras') $ptrAddons
+            $config = Read-ConfigWtf -Path $context.Target.ConfigWtf
+            Assert-Equal 'us.logon-ptr.worldofwarcraft.com' $config['realmList']
+            Assert-Equal '0' $config['checkAddonVersion']
+        }
+        finally { $runspace.Dispose() }
+    }
+
+    It 'writes nothing when it is only a preview' {
+        $mockBuilder = Join-Path $repoRoot 'tools/New-MockWowFolder.ps1'
+        $null = & $mockBuilder -Path $script:TestDrive -Force -Quiet
+        $installs = @(Get-WowInstall -Path (Join-Path $script:TestDrive 'World of Warcraft') -SkipDefaultLocations)
+        $context = Initialize-PtrSetupContext -Install $installs
+        $before = @(Get-RelativeFile -Root $context.Target.Path | ForEach-Object { $_.Relative })
+
+        $progress = [hashtable]::Synchronized(@{ Title = ''; Index = 0; Total = 0; Done = 0; Files = 0 })
+        $runspace = [runspacefactory]::CreateRunspace()
+        $runspace.Open()
+        try {
+            $loader = [powershell]::Create()
+            $loader.Runspace = $runspace
+            $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument(
+                (Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'))
+            $null = $loader.Invoke(); $loader.Dispose()
+
+            $shell = [powershell]::Create()
+            $shell.Runspace = $runspace
+            $null = $shell.AddScript((Get-RunScript))
+            $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $context))
+            $null = $shell.AddArgument(@('copy_addons'))
+            $null = $shell.AddArgument($true)
+            $null = $shell.AddArgument($progress)
+            $null = @($shell.EndInvoke($shell.BeginInvoke()))
+            Assert-Equal 0 @($shell.Streams.Error).Count "The worker reported: $($shell.Streams.Error)"
+            $shell.Dispose()
+
+            $after = @(Get-RelativeFile -Root $context.Target.Path | ForEach-Object { $_.Relative })
+            Assert-Equal $before $after 'A preview must not write anything, on the worker or anywhere else.'
+        }
+        finally { $runspace.Dispose() }
+    }
+
+    It 'keeps a fallback for when there is no worker' {
+        $text = Get-Content -LiteralPath $scriptPath -Raw
+        Assert-True ($text -match 'Invoke-RunHere') 'A machine that will not give a runspace should still be able to apply.'
+        Assert-True ($text -match 'function Complete-Run') 'Both paths must put the window back together the same way.'
+    }
+}

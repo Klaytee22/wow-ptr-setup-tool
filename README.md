@@ -100,9 +100,8 @@ fine, since people paste whichever one Explorer happens to be showing.
 Every client folder in there is offered: `_retail_`, `_classic_`, `_classic_era_`,
 `_anniversary_`, `_ptr_`, `_ptr2_`, the betas, and any Blizzard adds later. A folder the
 tool has never heard of is still recognised by the `.flavor.info` file every client
-carries, which is also what says which line of the game it belongs to — so the pairing
-and the "those are different versions" warning stay right without waiting on an update
-here.
+carries, so a version shipped after this was written turns up in the dropdowns on its
+own, without waiting on an update here.
 
 ## Safety
 
@@ -143,7 +142,7 @@ Modules/PtrUiSetup/
   Session.ps1                 first-guess selection and keeping it consistent
   Settings.ps1                remembers the folder you picked
 tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        198 tests, no game install and no Pester required
+tests/                        201 tests, no game install and no Pester required
 ```
 
 Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
@@ -193,7 +192,7 @@ each of its entries.
 
 ```powershell
 ./tools/Invoke-Gate.ps1                        # everything that has to pass
-./tests/Invoke-Tests.ps1                       # all 198
+./tests/Invoke-Tests.ps1                       # all 201
 ./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
 ```
 
@@ -228,7 +227,7 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 198 passing tests, including an end-to-end pass over a realistic mock install.
+v0.3 — 201 passing tests, including an end-to-end pass over a realistic mock install.
 
 The window itself **has still not been opened on a real Windows machine**: WPF cannot run
 where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it

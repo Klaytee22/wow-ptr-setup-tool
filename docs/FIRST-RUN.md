@@ -1,4 +1,4 @@
-# First run on Windows
+﻿# First run on Windows
 
 The window has never been opened. Everything underneath it is well tested — the file
 operations, the `Config.wtf` merge, backups and undo all have tests, and the whole
@@ -39,7 +39,7 @@ anything different is a finding worth reporting.
 **1 · Game folder** — the box holds the path to the mock's `World of Warcraft` folder,
 with **Browse…** and **Detect** beside it, and underneath:
 `2 client(s) found: Classic, Classic PTR`. Below that, `Classic — …\_classic_` on the
-left and `Classic PTR — …\_classic_ptr_` on the right. No amber warning.
+left and `Classic PTR — …\_classic_ptr_` on the right.
 
 Worth poking while you are here, since none of it has run:
 
@@ -161,7 +161,8 @@ Everything visual is unverified, so anything that looks wrong probably is. Speci
 - [ ] Do long instruction paragraphs on the step cards **wrap**, or do they clip?
 - [ ] Does the window **resize** sensibly — does the steps list scroll rather than
       squashing the footer?
-- [ ] Does the progress bar move during Apply, or does the window freeze?
+- [ ] Does the progress bar move during Apply, and does the window stay usable? The
+      copy runs on a background thread, so it should never grey out.
 - [ ] Does anything throw? Errors now land in the Results box as `[fail] …` instead of
       closing the window, so the message should be readable rather than lost.
 - [ ] Does the **folder box** behave — Enter commits, clicking away commits, Browse

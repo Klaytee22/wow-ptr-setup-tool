@@ -114,6 +114,15 @@ A superseded answer is dropped by comparing a token, cancellation is `BeginStop`
 than `Stop` so cancelling never blocks the thread it is protecting, and if a runspace
 cannot be had at all the window falls back to planning inline — slower, but working.
 
+**Applying runs on the worker too.** Copying pumps the window between files, but the
+phases around it do not — validating the whole batch, copying every replaced file into
+the backup, writing a manifest listing thousands of paths — and on a real install that
+is long enough for Windows to grey the window out and call it not responding. The run
+goes to the same runspace, and progress comes back through a synchronized hashtable the
+worker writes and a timer here reads, so the only thing crossing threads is a table of
+numbers. `Invoke-RunHere` is the same run on this thread, for a machine that will not
+give out a runspace.
+
 **A step that cannot be worked out is recorded as an empty plan and reported**, never
 left pending. The queue moves on in a `finally`, because a step still waiting is far
 worse than a step got wrong: the summary waits on it, Apply stays disabled, and the
