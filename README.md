@@ -112,6 +112,35 @@ there.
 
 [ActionBarSaver]: https://www.curseforge.com/wow/addons/action-bar-saver
 
+## What about Blizzard's "Copy Account Data" button?
+
+It does not overlap with this tool much, and if it fails for you it costs you very
+little. Blizzard's servers cannot read your hard drive, so whatever that button moves
+is server-side account data. Everything below lives in files on your PC and is out of
+its reach entirely:
+
+- the addon folders themselves, `Interface\AddOns`
+- every addon's settings — Bartender, WeakAuras, Details, Plater and the rest, in
+  `SavedVariables`
+- which profile each character loads (see the section above)
+- `AddOns.txt`, the enabled list, and `layout-local.txt`, the frame positions
+- `Config.wtf` — resolution, graphics, weather, volume
+
+The genuine overlap is **macros and keybinds**, which are plausibly server-side as
+well. This tool copies them from files regardless — `bindings-cache.wtf` and
+`macros-cache.txt` at both account and character level — so a button that does not
+work changes nothing as long as *Include macros and keybinds* stays ticked. If the
+button does work for you, untick it and let Blizzard do that half.
+
+Either way, *Preview changes* settles it without writing anything: press the button,
+then press Preview and read the file list. Files that already match are reported as
+such, so what is left in the list is exactly what Blizzard did not bring across.
+
+If keybinds arrive correctly and then revert after you log in and out, that is not this
+tool — WoW rewrites `WTF` on exit, and a client with server-side settings sync enabled
+can push its own copy down over the file. Look for a sync or cloud settings option in
+the game's own settings, then re-run the step.
+
 ## Finding your install
 
 The window opens with a folder box, so there is nothing to configure and no flag to
