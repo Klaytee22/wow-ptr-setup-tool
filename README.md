@@ -18,7 +18,18 @@ see the step is done.
 
 ## Running it
 
-Download or clone the repo, then **double-click one of these**:
+**Download:** [the latest release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest)
+→ *Source code (zip)*. Or the green **Code** button → *Download ZIP*.
+
+> **Right-click the downloaded `.zip` → Properties → tick *Unblock* → OK, and only then
+> extract it.** Windows marks everything that comes off the internet, and an extracted
+> `.cmd` carrying that mark gets a *"Windows protected your PC"* box instead of running.
+> Unblocking the zip first clears it for every file inside; doing it afterwards means
+> doing it file by file. If you have already extracted and hit the box, *More info →
+> Run anyway* works too.
+
+Extract it somewhere ordinary — Documents or Desktop, not inside the zip preview and
+not in `Program Files`. Then **double-click one of these**:
 
 | Double-click | What happens |
 |---|---|
@@ -28,7 +39,8 @@ Download or clone the repo, then **double-click one of these**:
 
 Nothing to install. It runs on the Windows PowerShell that ships with Windows, and the
 launchers pass `-ExecutionPolicy Bypass` for that one process, so no machine-wide
-setting changes.
+setting changes. Keep the folder as it comes — `Start-PtrUiSetup.cmd` looks for
+`PtrUiSetup.ps1`, `ui\` and `Modules\` next to itself.
 
 > **Windows will not run a `.ps1` by double-clicking it** — Explorer opens it in
 > Notepad, and so does Command Prompt. That is what the `.cmd` files are for. If you
@@ -81,9 +93,12 @@ Three separate things, from three different places.
 **The abilities sitting in each bar slot are server-side.** WoW keeps them on the
 character, not in any file on your disk — which is why an addon has to read them
 through the game API to back them up at all. So this tool cannot move them, cannot
-break them, and does not try. Whether Blizzard's character copy brings them across is
-their side of the line and not something this project can promise either way; the
-paragraph below is the answer if it turns out they did not.
+break them, and does not try.
+
+**Blizzard's character copy does not appear to bring them either.** On the run this was
+tested against — an Anniversary live client onto its PTR — everything else arrived and
+the bars came up empty. Treat that as one observation rather than a rule, but plan for
+it: the recipe below is quick and costs nothing if the bars turn out fine.
 
 **Where the bars are — Bartender, ElvUI, Dominos** — is a profile in
 `WTF\Account\<ACCOUNT>\SavedVariables\<Addon>.lua`, which step 6 copies.
@@ -100,15 +115,25 @@ in and go to each addon and copy the profile from your Live Character's profile"
 If an addon still comes up on defaults, it keeps its settings under a scheme this
 cannot read. Pick the profile once in its options and it sticks.
 
-**If the bar slots themselves arrive empty**, that is Blizzard's copy, not this tool —
-and worth guarding against in advance, because the fix has to happen on the live
-character *before* you copy. Nothing outside the game can read or write those slots, so
-screenshots are the low-tech option and an in-game addon is the real one.
-[ActionBarSaver] is the long-standing choice: `/abs save live` on your live character
-first, then after this tool has run, `/abs restore live` on the PTR. Its saved data is
-account-wide SavedVariables, so step 6 carries it across for you with everything else.
+### Getting the bar slots across anyway
+
+Nothing outside the game can read or write those slots, so this has to be done by an
+in-game addon. [ActionBarSaver] is the long-standing one, and it fits this tool exactly:
+it keeps its data in account-wide SavedVariables, which step 6 already copies. **You do
+not need to copy your character again** — the whole thing works from where you are:
+
+1. **On live:** install ActionBarSaver, log in on the character whose bars you want,
+   and run `/abs save live`.
+2. **Log out.** WoW writes SavedVariables on exit, so the file does not exist until you
+   do. Skipping this is the one way to get a confusing result.
+3. **Run this tool** — it copies the addon and its saved data over with everything else.
+4. **On the PTR:** log in and run `/abs restore live`.
+
+Do step 1 *before* the copy next time and the bars are right on the first login.
+
 On retail, save and restore on the same specialisation — action bars are per-spec
-there.
+there. Screenshots remain the no-addon option, and are worth taking anyway before a
+first attempt.
 
 [ActionBarSaver]: https://www.curseforge.com/wow/addons/action-bar-saver
 
@@ -294,24 +319,28 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v0.3 — 201 passing tests, including an end-to-end pass over a realistic mock install.
+v1.0 — 243 passing tests, including an end-to-end pass over a realistic mock install,
+and run through on a real Windows install: an Anniversary live client onto its PTR,
+addons and settings across, `Config.wtf` merged with the PTR realm intact, and Restore
+put back.
 
-The window itself **has still not been opened on a real Windows machine**: WPF cannot run
-where this was built. `tests/Ui.Tests.ps1` closes part of that gap without WPF — it
-parses both files, cross-checks every control the script uses against the XAML, and
-asserts the properties whose absence only shows up on screen (multi-line text boxes,
-no bare strings in a list that displays a property, every click handler wrapped so a
-failure cannot close the window). It also lifts the folder-box functions out of the
-script by AST and runs them against a stub, so what the status line says and which
-folders get remembered are covered without WPF. Rendering, layout and click behaviour
-still need a human on Windows. Expect first-run rough edges in the window; the file operations
-underneath are the well-tested part — start with the mock install above.
+What that pass found and fixed, in case any of it resurfaces: a crash on any step with
+exactly one file to copy, an empty step list, Apply freezing the window while it backed
+files up, byte totals counting deleted files as copied, and a "these are different
+versions" warning that fired on a perfectly normal pairing. Each has a regression test.
 
-Known and unverified on Windows: the dark theme leaves the ComboBox dropdown popups on
-the system's light background, which is why their items are explicitly dark rather than
-inheriting the window's light text. Worth a look on a real screen —
-[`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) ends with the short list of things only a human
-at a screen can settle.
+The suite is the gate — `tools/Invoke-Gate.ps1`, also what CI runs. Most of the window
+still cannot be executed anywhere the tests run, since WPF is Windows-only, so
+`tests/Ui.Tests.ps1` closes what it can without it: it parses both files, cross-checks
+every control the script uses against the XAML, holds the option checkboxes against the
+options they set, and asserts the properties whose absence only shows on screen. It also
+lifts functions out of the script by AST and runs them against stubs, so the folder box,
+the planning queue and the Apply worker are covered without a window.
+
+Still only settleable by a human at a screen: rendering, layout, contrast, and how it
+behaves on an install much larger than the ones it has seen. Preview before you Apply —
+it writes nothing and prints the exact file list — and every step that writes is backed
+up first.
 
 ## Docs
 

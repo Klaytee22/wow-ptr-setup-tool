@@ -1,4 +1,4 @@
-# Getting this onto GitHub
+﻿# Getting this onto GitHub
 
 This repository is **completely separate** from any other project you have. It has its
 own folder, its own `.git`, its own history, and its own remote. Nothing below touches
@@ -106,6 +106,72 @@ of cloning them next to it. Keep them as sibling folders:
 | `remote: Repository not found` | Wrong URL, or no access | Re-check `git remote -v`; for a private repo, make sure you are signed in |
 | `error: src refspec main does not match any` | Your branch is not called `main` | `git branch --show-current`, then push that name |
 | A browser login prompt | GitHub no longer accepts passwords on the command line | Sign in with [GitHub CLI](https://cli.github.com) (`gh auth login`) or use a personal access token as the password |
+
+## Sharing it with your guild
+
+### Cut a release
+
+A release gives people one stable link instead of a branch name, and tells you which
+version someone is on when they report something.
+
+```powershell
+git tag -a v1.0.0 -m "First release"
+git push origin v1.0.0
+```
+
+Then on GitHub: **Releases → Draft a new release → choose the `v1.0.0` tag → Publish**.
+GitHub attaches *Source code (zip)* on its own, so there is nothing to build or upload.
+The link to hand out is:
+
+<https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest>
+
+That URL always points at the newest release, so it stays correct after the next one.
+
+### The one thing that will generate messages
+
+Windows marks every file that came off the internet. An extracted `.cmd` carrying that
+mark shows *"Windows protected your PC"* instead of running, and people read that as a
+virus warning rather than as a shrug.
+
+Tell them: **right-click the zip → Properties → tick Unblock → OK, then extract.** One
+tick on the zip clears every file inside it. Doing it after extracting means doing it
+one file at a time.
+
+### A message you can paste
+
+```
+WoW PTR UI Setup — copies your live addons, addon profiles, keybinds, macros and
+UI layout onto the PTR client, so you are not rebuilding your interface every patch.
+
+Download: https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest
+  → under Assets, "Source code (zip)"
+
+1. Right-click the zip → Properties → tick "Unblock" → OK.  (Windows blocks
+   downloaded scripts otherwise and shows a scary-looking box.)
+2. Extract it to Documents or Desktop.
+3. Double-click Try-It-Safely.cmd first — it builds a fake game folder and opens
+   the tool on that, so you can click around without it touching your real install.
+4. When you are happy, double-click Start-PtrUiSetup.cmd for the real thing.
+
+Windows only. Nothing to install — it uses the PowerShell that ships with Windows.
+
+Quit WoW first (both clients), and copy your character to the PTR before you run it.
+Press "Preview changes" before "Apply" — preview writes nothing and shows you the
+exact file list. Every step that writes anything backs it up first, and there is a
+Restore dropdown that undoes any step.
+
+It only ever writes inside the PTR folder. Your live client is read and never
+written to.
+```
+
+### If someone reports a problem
+
+Ask for the **Results box** at the bottom of the window — errors land there with a line
+number, and that is usually enough to place the fault. `Run-Tests.cmd` on their machine
+is the next thing: it needs no game folder and confirms whether the problem is their
+install or the tool.
+
+## The older notes
 
 ## Releasing it to other players
 
