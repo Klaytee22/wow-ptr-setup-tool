@@ -78,29 +78,22 @@ WoW *is* running, step 3 will say so, which is correct). Then:
 | Copy per-character settings | READY | Show the 7 file(s) — 504 B |
 | Allow out-of-date addons | READY | Show the 1 file(s) — 170 B |
 
-**Footer** — `5 step(s) selected · 28 file(s) · 2.8 KB`, with *Preview changes* and
-*Apply selected steps* both enabled.
+**Footer** — `5 step(s) selected · 28 file(s) · 2.8 KB`, with *Apply selected steps*
+enabled.
 
 Open one of those expanders. The file list should be **multi-line**, one action per
 row, like `create    C:\…\Interface\AddOns\WeakAuras\WeakAuras.lua`. If it is all
 crammed onto one line, the `AcceptsReturn` fix did not take.
 
-## 3. Preview
+## 3. Read the plan
 
-Press **Preview changes**. The Results box should print one line per step:
+Open the expander on a step card. That list is the plan — one action per row, like
+`create    C:\…\Interface\AddOns\WeakAuras\WeakAuras.lua`. It should be
+**multi-line**; if it is all crammed onto one row, the `AcceptsReturn` fix did not take.
 
-```
---- Preview (nothing is written) ---
-[ok]   Copy your addons — Preview: 12 file(s).
-[ok]   Carry over Config.wtf — Preview: 1 file(s).
-…
-```
-
-Again: **multi-line**. The Results box was single-line before, which put all of that
-on one row.
-
-Nothing on disk should change. If you want to be sure, note the mock folder's
-modified date before and after.
+Nothing is written by looking. There is no separate preview button: the cards already
+show every file, so a button that printed the same counts into the Results box was one
+more thing to press for no more information.
 
 ## 4. Apply
 
@@ -154,7 +147,7 @@ One other thing the tool leaves behind: `%LOCALAPPDATA%\PtrUiSetup\settings.json
 which is how it remembers your folder between launches. Delete it if you want to see
 first-launch detection again. Nothing else on your machine was touched.
 
-Then, on your real install, the honest order is: **Preview first, read the file list,
+Then, on your real install, the honest order is: **read a step's file list first,
 and only then Apply.** Quit WoW before applying — it rewrites `WTF` when it exits and
 will undo the copy.
 

@@ -233,7 +233,6 @@ $script:Invalidates = @{
     ReplaceAddOns         = @('copy_addons')
     IncludeMacrosBindings = @('copy_account_saved_variables', 'copy_character_data')
     IncludeChatCache      = @('copy_character_data')
-    AllowOutOfDate        = @('copy_config_wtf', 'allow_out_of_date_addons')
     PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
     PatchPtrLibraries     = @('copy_addons')
 }
@@ -1251,7 +1250,6 @@ function Update-Summary {
 
     $ready = Test-ContextReady -Context $script:Context
     # Applying half a plan would copy less than the window is showing.
-    $ui.PreviewButton.IsEnabled = ($ready -and -not $waiting -and $files -gt 0)
     $ui.ApplyButton.IsEnabled = ($ready -and -not $waiting -and $files -gt 0)
     $ui.SummaryText.Text = if ($waiting) {
         'Working out what needs copying…'
@@ -1296,7 +1294,6 @@ function Update-Options {
         $ui.ReplaceAddOnsOption.IsChecked = [bool]$script:Context.Options['ReplaceAddOns']
         $ui.MacrosOption.IsChecked = [bool]$script:Context.Options['IncludeMacrosBindings']
         $ui.ChatOption.IsChecked = [bool]$script:Context.Options['IncludeChatCache']
-        $ui.OutOfDateOption.IsChecked = [bool]$script:Context.Options['AllowOutOfDate']
         $ui.ProfileKeysOption.IsChecked = [bool]$script:Context.Options['PointProfilesAtPtr']
         $ui.LibraryPatchOption.IsChecked = [bool]$script:Context.Options['PatchPtrLibraries']
     }
@@ -1343,7 +1340,6 @@ function Update-All {
 function Invoke-Rescan {
     Reset-Plan
     $ui.SummaryText.Text = 'Reading folders…'
-    $ui.PreviewButton.IsEnabled = $false
     $ui.ApplyButton.IsEnabled = $false
     Update-UiNow
 
@@ -1387,49 +1383,44 @@ function Invoke-Run {
         back through a synchronized hashtable the worker writes and a timer here
         reads, so the only thing crossing threads is a table of numbers.
     #>
-    param([switch] $PreviewOnly)
-
     if ($script:Running) { return }
     $stepIds = @((Get-PtrSetupStep | Where-Object { $script:Selected.Contains($_.Id) }).Id)
     if (-not $stepIds) { return }
 
-    if (-not $PreviewOnly) {
-        # Already worked out; Apply is only enabled once every selected step has a plan.
-        $planned = @(foreach ($id in $stepIds) { $script:Plans[$id] })
-        $deletes = @($planned | Where-Object { $_.Kind -eq 'delete' }).Count
-        $message = "Apply $($stepIds.Count) step(s) to $($script:Context.Target.Path)?"
-        if ($deletes) { $message += "`n`n$deletes file(s) will be REMOVED from the PTR folder." }
+    # Already worked out; Apply is only enabled once every selected step has a plan.
+    $planned = @(foreach ($id in $stepIds) { $script:Plans[$id] })
+    $deletes = @($planned | Where-Object { $_.Kind -eq 'delete' }).Count
+    $message = "Apply $($stepIds.Count) step(s) to $($script:Context.Target.Path)?"
+    if ($deletes) { $message += "`n`n$deletes file(s) will be REMOVED from the PTR folder." }
 
-        # The one thing in here that does not stay inside the PTR folder. Ticking
-        # it is already a deliberate act; being told again on the way past is the
-        # least this can do.
-        $live = @((Get-PtrSetupStep | Where-Object { $stepIds -contains $_.Id -and $_.WritesTo -eq 'Source' }).Title)
-        if ($live.Count) {
-            $message += "`n`nThis will also write to your LIVE client at $($script:Context.Source.Path):`n  " +
-            ($live -join "`n  ") + "`n`nThat is the only step that does, and it is off unless you tick it."
-        }
-
-        $message += "`n`nEverything overwritten or removed is backed up first."
-
-        # WoW rewrites WTF as it exits, so copying under a running client is wasted work.
-        $running = @(Get-RunningWowProcess)
-        if ($running.Count) {
-            $message += "`n`nWarning: World of Warcraft is still running ($((@($running.Name | Select-Object -Unique)) -join ', ')). Quit it first, or the game will overwrite what is copied."
-        }
-
-        $answer = [System.Windows.MessageBox]::Show($message, 'WoW PTR UI Setup', 'OKCancel', 'Warning')
-        if ($answer -ne 'OK') { return }
+    # The one thing in here that does not stay inside the PTR folder. Ticking
+    # it is already a deliberate act; being told again on the way past is the
+    # least this can do.
+    $live = @((Get-PtrSetupStep | Where-Object { $stepIds -contains $_.Id -and $_.WritesTo -eq 'Source' }).Title)
+    if ($live.Count) {
+        $message += "`n`nThis will also write to your LIVE client at $($script:Context.Source.Path):`n  " +
+        ($live -join "`n  ") + "`n`nThat is the only step that does, and it is off unless you tick it."
     }
+
+    $message += "`n`nEverything overwritten or removed is backed up first."
+
+    # WoW rewrites WTF as it exits, so copying under a running client is wasted work.
+    $running = @(Get-RunningWowProcess)
+    if ($running.Count) {
+        $message += "`n`nWarning: World of Warcraft is still running ($((@($running.Name | Select-Object -Unique)) -join ', ')). Quit it first, or the game will overwrite what is copied."
+    }
+
+    $answer = [System.Windows.MessageBox]::Show($message, 'WoW PTR UI Setup', 'OKCancel', 'Warning')
+    if ($answer -ne 'OK') { return }
 
     $script:Running = $true
     $ui.ApplyButton.IsEnabled = $false
-    $ui.PreviewButton.IsEnabled = $false
     $ui.ProgressBar.Value = 0
-    Write-Result $(if ($PreviewOnly) { '--- Preview (nothing is written) ---' } else { '--- Applying ---' })
+    Write-Result '--- Applying ---'
 
     $runspace = Get-PlanWorker
     if (-not $runspace) {
-        Invoke-RunHere -StepId $stepIds -PreviewOnly:$PreviewOnly
+        Invoke-RunHere -StepId $stepIds
         return
     }
 
@@ -1442,7 +1433,7 @@ function Invoke-Run {
     $shell = [powershell]::Create()
     $shell.Runspace = $runspace
     $null = $shell.AddScript({
-            param($Snapshot, $StepId, $PreviewOnly, $Progress)
+            param($Snapshot, $StepId, $Progress)
             $context = ConvertFrom-PtrSetupSnapshot -Snapshot $Snapshot
             $ids = @($StepId)
             $index = 0
@@ -1455,7 +1446,7 @@ function Invoke-Run {
                 $Progress['Done'] = 0
                 $Progress['Files'] = 0
 
-                $result = Invoke-PtrSetupStep -Step $step -Context $context -PreviewOnly:$PreviewOnly -OnProgress {
+                $result = Invoke-PtrSetupStep -Step $step -Context $context -OnProgress {
                     param($Done, $FileCount)
                     $Progress['Done'] = $Done
                     $Progress['Files'] = $FileCount
@@ -1469,7 +1460,6 @@ function Invoke-Run {
         })
     $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $script:Context))
     $null = $shell.AddArgument($stepIds)
-    $null = $shell.AddArgument([bool]$PreviewOnly)
     $null = $shell.AddArgument($progress)
 
     $script:RunJob = [pscustomobject]@{
@@ -1535,10 +1525,7 @@ function Invoke-RunHere {
     .SYNOPSIS
         The same run on this thread, for a machine that will not give a runspace.
     #>
-    param(
-        [Parameter(Mandatory)] [string[]] $StepId,
-        [switch] $PreviewOnly
-    )
+    param([Parameter(Mandatory)] [string[]] $StepId)
 
     $script:RunIndex = 0
     $script:RunTotal = @($StepId).Count
@@ -1548,7 +1535,7 @@ function Invoke-RunHere {
             $ui.SummaryText.Text = "Step $($script:RunIndex + 1) of $($script:RunTotal): $($step.Title)"
             Update-UiNow
 
-            $result = Invoke-PtrSetupStep -Step $step -Context $script:Context -PreviewOnly:$PreviewOnly -OnProgress {
+            $result = Invoke-PtrSetupStep -Step $step -Context $script:Context -OnProgress {
                 param($Done, $Total)
                 $withinStep = $Done / [math]::Max(1, $Total)
                 $ui.ProgressBar.Value = [math]::Min(100, 100 * ($script:RunIndex + $withinStep) / $script:RunTotal)
@@ -1670,7 +1657,6 @@ $optionMap = @{
     ReplaceAddOnsOption = 'ReplaceAddOns'
     MacrosOption        = 'IncludeMacrosBindings'
     ChatOption          = 'IncludeChatCache'
-    OutOfDateOption     = 'AllowOutOfDate'
     ProfileKeysOption   = 'PointProfilesAtPtr'
     LibraryPatchOption  = 'PatchPtrLibraries'
 }
@@ -1746,7 +1732,6 @@ $ui.RestoreButton.Add_Click({
         }
     })
 
-$ui.PreviewButton.Add_Click({ Invoke-Guarded { Invoke-Run -PreviewOnly } })
 $ui.ApplyButton.Add_Click({ Invoke-Guarded { Invoke-Run } })
 
 # --------------------------------------------------------------------------

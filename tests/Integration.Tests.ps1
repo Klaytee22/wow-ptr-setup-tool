@@ -429,7 +429,9 @@ Describe 'Undo' {
         $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
         Assert-True ((Get-TreeSnapshot -Root $mock.Context.Target.Path) -ne $before) 'The run should have changed something.'
 
-        # Newest first, so the oldest backup is restored last and wins.
+        # Newest first, so the oldest backup is restored last and wins. Two steps
+        # write Config.wtf in the same run, so the order genuinely matters —
+        # restoring oldest-first leaves the middle state behind.
         foreach ($backup in (Get-PtrSetupBackup -InstallPath $mock.Context.Target.Path)) {
             $null = Restore-PtrSetupBackup -InstallPath $mock.Context.Target.Path -BackupId $backup.Id
         }

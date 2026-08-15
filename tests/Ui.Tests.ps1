@@ -68,9 +68,9 @@ Describe 'The window and its XAML' {
                 'SourceInstallCombo', 'TargetInstallCombo', 'RescanButton', 'InstallWarning',
                 'SourceAccountCombo', 'TargetAccountCombo', 'CharacterPanel',
                 'StepsPanel',
-                'OverwriteOption', 'MacrosOption', 'ChatOption', 'OutOfDateOption',
+                'OverwriteOption', 'MacrosOption', 'ChatOption',
                 'BackupCombo', 'RefreshBackupsButton', 'RestoreButton', 'ClearBackupsButton',
-                'ResultsBox', 'SummaryText', 'ProgressBar', 'PreviewButton', 'ApplyButton')) {
+                'ResultsBox', 'SummaryText', 'ProgressBar', 'ApplyButton')) {
             Assert-True ($defined -contains $required) "The XAML is missing $required."
         }
     }
@@ -923,7 +923,6 @@ Describe 'Applying on the worker' {
             $null = $shell.AddScript((Get-RunScript))
             $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $context))
             $null = $shell.AddArgument($autoIds)
-            $null = $shell.AddArgument($false)
             $null = $shell.AddArgument($progress)
 
             $results = @($shell.EndInvoke($shell.BeginInvoke()))
@@ -947,40 +946,6 @@ Describe 'Applying on the worker' {
             $config = Read-ConfigWtf -Path $context.Target.ConfigWtf
             Assert-Equal 'us.logon-ptr.worldofwarcraft.com' $config['realmList']
             Assert-Equal '0' $config['checkAddonVersion']
-        }
-        finally { $runspace.Dispose() }
-    }
-
-    It 'writes nothing when it is only a preview' {
-        $mockBuilder = Join-Path $repoRoot 'tools/New-MockWowFolder.ps1'
-        $null = & $mockBuilder -Path $script:TestDrive -Force -Quiet
-        $installs = @(Get-WowInstall -Path (Join-Path $script:TestDrive 'World of Warcraft') -SkipDefaultLocations)
-        $context = Initialize-PtrSetupContext -Install $installs
-        $before = @(Get-RelativeFile -Root $context.Target.Path | ForEach-Object { $_.Relative })
-
-        $progress = [hashtable]::Synchronized(@{ Title = ''; Index = 0; Total = 0; Done = 0; Files = 0 })
-        $runspace = [runspacefactory]::CreateRunspace()
-        $runspace.Open()
-        try {
-            $loader = [powershell]::Create()
-            $loader.Runspace = $runspace
-            $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument(
-                (Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'))
-            $null = $loader.Invoke(); $loader.Dispose()
-
-            $shell = [powershell]::Create()
-            $shell.Runspace = $runspace
-            $null = $shell.AddScript((Get-RunScript))
-            $null = $shell.AddArgument((ConvertTo-PtrSetupSnapshot -Context $context))
-            $null = $shell.AddArgument(@('copy_addons'))
-            $null = $shell.AddArgument($true)
-            $null = $shell.AddArgument($progress)
-            $null = @($shell.EndInvoke($shell.BeginInvoke()))
-            Assert-Equal 0 @($shell.Streams.Error).Count "The worker reported: $($shell.Streams.Error)"
-            $shell.Dispose()
-
-            $after = @(Get-RelativeFile -Root $context.Target.Path | ForEach-Object { $_.Relative })
-            Assert-Equal $before $after 'A preview must not write anything, on the worker or anywhere else.'
         }
         finally { $runspace.Dispose() }
     }

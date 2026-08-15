@@ -77,9 +77,10 @@ console on macOS or Linux (see *Scripting it* below).
 Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
 along with the eight places this tool deliberately does something different (and why).
 
-Every automated step is **previewable** — press *Preview changes* for the exact file
-list with nothing written — and **individually tickable**, so you can copy addons
-without touching settings, or the reverse.
+Every automated step is **individually tickable**, so you can copy addons without
+touching settings, or the reverse — and every one of them shows the exact files it would
+write before you press anything. Open the *Show the N file(s)* list on a card and that is
+the plan, file by file.
 
 The copying is plain PowerShell (`Copy-Item`) against your folders. No server, no
 browser, no network access at any point.
@@ -122,18 +123,18 @@ in-game addon, and the addon's own saved data is then just another file this too
 copies — both account-level and character-level `SavedVariables` are covered, so
 whichever scope the addon uses comes across.
 
-**Pick a build that matches your client.** This is the step that goes wrong: the
-long-recommended [Action Bar Saver] was last updated in 2010 and simply does not load on
-a modern client, so its `/abs` command does not exist and it looks as though nothing was
-installed. Two that are maintained for the Anniversary clients:
+**Take a build that matches your client**, which the addon installers get right on their
+own. The one that goes wrong is picking an abandoned addon: the long-recommended
+[Action Bar Saver] was last updated in 2010 and does not load on a modern client at all,
+so its `/abs` command does not exist and it looks as though nothing was installed. Two
+that are maintained:
 
-- [ActionBarSaver: Reloaded] — a rewrite of the original, with separate
-  **Anniversary-Era** and **Anniversary-TBC** downloads. It files sets by **class**, not
-  by character, so the copied character having a different name or realm makes no
+- [ActionBarSaver: Reloaded] — a rewrite of the original. It files sets by **class**,
+  not by character, so the copied character having a different name or realm makes no
   difference to it: land the file on the PTR and `/abs list` shows your sets. Its own
-  data is account-level, so step 6 carries it.
-- [TBCA Action Bars Saver] — built for Classic/TBC Anniversary, ten bars, and it copes
-  with spells that are missing on the destination.
+  data is account-level, so the addon settings step carries it.
+- [TBCA Action Bars Saver] — ten bars, and it copes with spells that are missing on the
+  destination.
 
 The order that works, without copying your character again:
 
@@ -298,9 +299,9 @@ well. This tool copies them from files regardless — `bindings-cache.wtf` and
 work changes nothing as long as *Include macros and keybinds* stays ticked. If the
 button does work for you, untick it and let Blizzard do that half.
 
-Either way, *Preview changes* settles it without writing anything: press the button,
-then press Preview and read the file list. Files that already match are reported as
-such, so what is left in the list is exactly what Blizzard did not bring across.
+Either way the step cards settle it without writing anything: press the button, then open
+the file list on *Copy account-wide addon settings*. Files that already match are marked
+as such, so what is left is exactly what Blizzard did not bring across.
 
 If keybinds arrive correctly and then revert after you log in and out, that is not this
 tool — WoW rewrites `WTF` on exit, and a client with server-side settings sync enabled
@@ -411,8 +412,8 @@ character on "Classic PTR Realm 1", one stale PTR-only addon), then opens the wi
 pointed at it. Every file is stamped `LIVE` or `PTR`, so after applying you can open
 anything on the PTR side and see whether it really came across.
 
-Worth trying there: Preview (nothing should change), Apply (5 addons copied, the stale
-one removed), check `WTF\Config.wtf` still says `logon-ptr`, Restore, Apply again (every
+Worth trying there: open a step's file list (nothing is written by looking), Apply
+(5 addons copied, the stale one removed), check `WTF\Config.wtf` still says `logon-ptr`, Restore, Apply again (every
 step reports "already up to date"). Delete the folder when you are done — nothing else
 on your machine is touched.
 
@@ -466,7 +467,7 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 v1.1 — 318 passing tests, gated by `tools/Invoke-Gate.ps1`, which is also what CI runs.
 
 **Verified on a real Windows install** (Anniversary live → its PTR): detection, the
-client and account dropdowns, the step list, Preview, Apply, `Config.wtf` merged with the
+client and account dropdowns, the step list, Apply, `Config.wtf` merged with the
 PTR realm intact, Restore, and addons plus their settings arriving in a working state.
 
 **Built but not yet confirmed in game.** These were written against a real file or a real
@@ -479,12 +480,13 @@ error message and are covered by tests, but nobody has watched the client accept
 - the AceDB region fallback
 - the crash log at `%TEMP%\ptrsetup-error.log`, and the launcher pausing on failure
 
-Each of those is backed up before it writes and undoable from the Restore dropdown. Do
-one Apply, look at the result in game, and come back if something is off.
+Each is backed up before it writes and undoable from the Restore dropdown — bar the live
+macro rename, which says so on its own card. Do one Apply, look at the result in game,
+and come back if something is off.
 
 **Only settleable by a human at a screen:** rendering, layout, contrast, and how any of
-this behaves on an install much larger than the ones it has seen. Preview before you
-Apply — it writes nothing and prints the exact file list.
+this behaves on an install much larger than the ones it has seen. Read the file list on a
+step card before you Apply — it is the plan, exactly.
 
 ## Docs
 

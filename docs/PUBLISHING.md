@@ -154,9 +154,9 @@ Download: https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest
 Windows only. Nothing to install — it uses the PowerShell that ships with Windows.
 
 Quit WoW first (both clients), and copy your character to the PTR before you run it.
-Press "Preview changes" before "Apply" — preview writes nothing and shows you the
-exact file list. Every step that writes anything backs it up first, and there is a
-Restore dropdown that undoes any step.
+Each step shows the exact files it will write — open the "Show the N file(s)" list on
+a card before you Apply. Every step that writes into the PTR backs it up first, and
+there is a Restore dropdown that undoes any of them.
 
 It only ever writes inside the PTR folder. Your live client is read and never
 written to.

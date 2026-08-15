@@ -362,9 +362,20 @@ function Invoke-FileActionPlan {
     # Back up everything about to be replaced or removed, and note everything
     # about to be created, so Restore can undo the run completely rather than
     # leaving newly-copied files behind.
-    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    # Milliseconds, and a counter behind them. Restoring a run means putting its
+    # backups back newest first, and the only thing saying which is newest is
+    # the folder name — at one-second resolution an Apply that ran several steps
+    # produced several names that sorted arbitrarily against each other, so
+    # undoing a run could leave the middle of it behind.
     $safeLabel = ($Label -replace '[^\w\-]', '-')
-    $backupPath = Join-Path (Get-BackupRoot -InstallPath $InstallPath) "$stamp-$safeLabel"
+    $backupRoot = Get-BackupRoot -InstallPath $InstallPath
+    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff')
+    $backupPath = Join-Path $backupRoot "$stamp-$safeLabel"
+    $suffix = 0
+    while (Test-Path -LiteralPath $backupPath) {
+        $suffix++
+        $backupPath = Join-Path $backupRoot ('{0}-{1:D2}-{2}' -f $stamp, $suffix, $safeLabel)
+    }
     $replaced = @($todo | Where-Object { $_.Kind -in @('overwrite', 'delete') })
     $entries = [System.Collections.Generic.List[psobject]]::new()
 

@@ -41,7 +41,10 @@ Describe 'copy_config_wtf' {
         $written = Read-ConfigWtf -Path $context.Target.ConfigWtf
         Assert-Equal '2560x1440' $written['gxResolution']
         Assert-Equal 'us.logon-ptr.worldofwarcraft.com' $written['realmList']
-        Assert-Equal '0' $written['checkAddonVersion']
+        # checkAddonVersion is not this step's business — allow_out_of_date_addons
+        # owns it, and two steps writing one key is how the option that appeared
+        # to control it ended up controlling nothing.
+        Assert-False $written.Contains('checkAddonVersion')
     }
 
     It 'reports done, not blocked, once it has run' {
@@ -54,13 +57,15 @@ Describe 'copy_config_wtf' {
         Assert-True ($status.Detail -match 'up to date')
     }
 
-    It 'leaves checkAddonVersion alone when the option is off' {
+    It 'is exactly one step that sets checkAddonVersion' {
+        # It used to be two, so unticking the step changed nothing: the merge had
+        # already written the key on the way past.
         $context = New-FakeContext -Root (New-FakeWowRoot -Parent $script:TestDrive)
-        $context.Options['AllowOutOfDate'] = $false
-        $null = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'copy_config_wtf') -Context $context
-
-        $written = Read-ConfigWtf -Path $context.Target.ConfigWtf
-        Assert-False $written.Contains('checkAddonVersion')
+        $writers = foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+            $plan = @(New-PtrSetupStepPlan -Step $step -Context $context)
+            if (@($plan | Where-Object { $_.Content -match 'checkAddonVersion' })) { $step.Id }
+        }
+        Assert-Equal @('allow_out_of_date_addons') @($writers)
     }
 }
 

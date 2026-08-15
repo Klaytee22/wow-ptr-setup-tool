@@ -46,7 +46,6 @@ function New-PtrSetupContext {
         Overwrite             = $true
         IncludeMacrosBindings = $true
         IncludeChatCache      = $false
-        AllowOutOfDate        = $true
         # The guide clears the PTR addon folder before pasting. Everything removed
         # is backed up, so this stays reversible.
         ReplaceAddOns         = $true
@@ -356,10 +355,12 @@ Doing this now means the profile is already on the PTR when you get there, rathe
     } `
         -Plan {
         param($Context)
+        # No override for checkAddonVersion here. Its own step sets it, and two
+        # steps writing the same key meant the second always found the first had
+        # already done it — so the step that exists to do the job reported
+        # "nothing to do" and the option that appeared to control it did not.
         $before = Read-ConfigWtf -Path $Context.Target.ConfigWtf
-        $override = [ordered]@{}
-        if (Get-ContextOption -Context $Context -Name 'AllowOutOfDate') { $override['checkAddonVersion'] = '0' }
-        $after = Merge-ConfigWtf -Source (Read-ConfigWtf -Path $Context.Source.ConfigWtf) -Target $before -Override $override
+        $after = Merge-ConfigWtf -Source (Read-ConfigWtf -Path $Context.Source.ConfigWtf) -Target $before -Override ([ordered]@{})
 
         $changes = Compare-ConfigWtf -Before $before -After $after
         if (-not $changes) { return @() }

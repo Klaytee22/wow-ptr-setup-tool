@@ -228,7 +228,6 @@
                             <CheckBox x:Name="ReplaceAddOnsOption" Content="Replace the PTR addon folder (remove addons not in your live client)" Margin="0,4" />
                             <CheckBox x:Name="MacrosOption" Content="Include macros and keybinds" Margin="0,4" />
                             <CheckBox x:Name="ChatOption" Content="Include chat settings (chat-cache.txt)" Margin="0,4" />
-                            <CheckBox x:Name="OutOfDateOption" Content="Allow out-of-date addons (checkAddonVersion 0)" Margin="0,4" />
                             <CheckBox x:Name="ProfileKeysOption" Content="Point addon profiles at your PTR character (Bartender, ElvUI, Details…)" Margin="0,4" />
                             <CheckBox x:Name="LibraryPatchOption" Content="Fix the PTR copy of Ace3 so addons using it can start (never changes your live client)" Margin="0,4" />
                         </StackPanel>
@@ -286,7 +285,6 @@
                                  Background="{StaticResource Panel2}" Foreground="{StaticResource Gold}" BorderThickness="0" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button x:Name="PreviewButton" Content="Preview changes" />
                     <Button x:Name="ApplyButton" Content="Apply selected steps" Style="{StaticResource PrimaryButton}" />
                 </StackPanel>
             </Grid>

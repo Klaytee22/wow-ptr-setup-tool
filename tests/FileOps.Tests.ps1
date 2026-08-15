@@ -515,3 +515,40 @@ Describe 'Writing without a backup' {
         Assert-Equal "old`n" (Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw)
     }
 }
+
+Describe 'Backups in the order they were made' {
+
+    It 'names them so they sort into the order they happened' {
+        # Restoring a run means putting its backups back newest first, and the
+        # name is the only thing that says which is newest. At one-second
+        # resolution an Apply that ran several steps produced names that sorted
+        # arbitrarily, so undoing it could leave the middle state behind.
+        $install = Join-Path $script:TestDrive 'ptr'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "0`n"
+
+        $ids = foreach ($run in 1..6) {
+            $result = Invoke-FileActionPlan -InstallPath $install -Label 'copy_config_wtf' -Action @(
+                New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "$run`n")
+            Split-Path -Leaf $result.BackupPath
+        }
+
+        Assert-Equal @($ids) @(@($ids) | Sort-Object) 'Backup names do not sort into the order they were taken.'
+        Assert-Equal 6 @($ids | Select-Object -Unique).Count 'Two backups in the same run shared a name.'
+    }
+
+    It 'restores a whole run newest first' {
+        $install = Join-Path $script:TestDrive 'run'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "original`n"
+
+        foreach ($run in 1..4) {
+            $null = Invoke-FileActionPlan -InstallPath $install -Label "step$run" -Action @(
+                New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "$run`n")
+        }
+
+        foreach ($backup in (Get-PtrSetupBackup -InstallPath $install)) {
+            $null = Restore-PtrSetupBackup -InstallPath $install -BackupId $backup.Id
+        }
+        Assert-Equal "original`n" (Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw) `
+            'Undoing the whole run did not get back to where it started.'
+    }
+}
