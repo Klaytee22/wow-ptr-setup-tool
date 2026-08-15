@@ -206,7 +206,7 @@ $script:PtrSetupSteps = @(
 1. Log into the PTR client and pick a PTR realm.
 2. At the character-select screen use Copy Character (or the character-copy page on the PTR website, depending on the season) and copy your live character across.
 3. Log in as the copied character once, then quit the client.
-4. Come back here and press Rescan — the character will show up in the mapping list.
+4. The character turns up in the mapping list on its own — the window watches the folders.
 '@ `
         -Status {
         param($Context)
@@ -231,7 +231,7 @@ $script:PtrSetupSteps = @(
         param($Context)
         $running = @(Get-RunningWowProcess)
         if ($running.Count -gt 0) {
-            return New-PtrSetupStepStatus -State 'ready' -Detail ("Still running: " + (@($running.Name | Select-Object -Unique) -join ', ') + '. Quit the game, then press Rescan.')
+            return New-PtrSetupStepStatus -State 'ready' -Detail ("Still running: " + (@($running.Name | Select-Object -Unique) -join ', ') + '. Quit the game and this ticks itself off.')
         }
         return New-PtrSetupStepStatus -State 'done' -Detail 'No WoW client is running.'
     }
@@ -292,7 +292,7 @@ $script:PtrSetupSteps = @(
         -Instructions @'
 What sits in each action slot is held on Blizzard's servers, not in any file, so this tool cannot copy it and the character copy does not reliably bring it either. An addon can, and its saved data is then just another file that gets copied over with everything else.
 
-1. On the LIVE client, install ActionBarSaver: Reloaded — the build that matches your client (Anniversary-Era or Anniversary-TBC).
+1. On the LIVE client, install ActionBarSaver: Reloaded.
 2. Deal with the macro step above first if it is offering to do anything. A profile saved while macros share a name is ambiguous the moment it is written, and nothing done afterwards recovers it.
 3. Log in on the character whose bars you want, and run:  /abs save live
 4. Quit the game. WoW only writes an addon's saved data when it exits.
@@ -508,10 +508,9 @@ Doing this now means the profile is already on the PTR when you get there, rathe
         -Instructions @'
 1. Launch the PTR client and log in on the copied character.
 2. At character select, open AddOns and confirm your list is there and enabled. One that is listed but unticked just needs enabling; one that is missing entirely was installed after the last copy, so run this again.
-3. In game, run /reload once — some addons only settle their profile on a reload.
-4. Put your action bars back:  /abs restore live  — whatever you called the profile when you saved it. /abs list shows what came across.
-5. Errors naming an item id are normal: the addon can only place an item you are actually carrying, so anything still in your live bags cannot be restored. Errors naming a macro mean the names are still ambiguous — see the macro step near the top.
-6. If something is missing, use Restore below to undo, then re-apply with the affected step ticked on.
+3. Put your action bars back:  /abs restore live  — whatever you called the profile when you saved it. /abs list shows what came across.
+4. Errors naming an item id are normal: the addon can only place an item you are actually carrying, so anything still in your live bags cannot be restored. Errors naming a macro mean the names are still ambiguous — see the macro step near the top.
+5. If something is missing, use Restore below to undo, then re-apply with the affected step ticked on.
 '@ `
         -Status {
         param($Context)

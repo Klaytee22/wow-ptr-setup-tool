@@ -336,8 +336,10 @@ own, without waiting on an update here.
 
 - Nothing is written until you press **Apply** and confirm. The confirmation says how
   many files will be removed, and warns if WoW is still running.
-- **Delete all** next to Restore clears the backup folders out when they have piled up.
-  It is not an undo: it only throws away the copies kept *for* undoing.
+- **Delete all** next to Restore removes the backup folders once they have piled up —
+  `_ptrsetup_backups` and nothing else. It does not touch a single file this tool copied,
+  and it is not an undo: it throws away the copies kept *for* undoing, so anything you
+  have not restored yet stays exactly as it is on the PTR.
 - Every step that writes anything backs it up first, to
   `_ptrsetup_backups\<timestamp>-<step>\` inside the PTR folder. **Restore is a real
   undo**: replaced and deleted files go back, *and* files the step added are removed,

@@ -237,7 +237,7 @@
                             <StackPanel>
                                 <TextBlock Text="Backups" FontWeight="SemiBold" />
                                 <TextBlock Style="{StaticResource Hint}"
-                                           Text="Every overwritten file is copied into _ptrsetup_backups inside the PTR folder before it is replaced. Restoring puts them all back." />
+                                           Text="Every overwritten file is copied into _ptrsetup_backups before it is replaced. Restore puts one step back; Delete all clears the backup folders out and touches nothing else." />
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />

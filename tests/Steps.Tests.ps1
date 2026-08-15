@@ -610,6 +610,20 @@ Describe 'Telling the user about their macros and their bars' {
         Assert-True ($status.Detail -match 'ActionBarSaverReloaded') "Expected it to name the addon: $($status.Detail)"
     }
 
+    It 'never tells the user to press Rescan' {
+        # The window watches the account folder, every realm under it, and the
+        # process list, so a character copied onto the PTR and the game being
+        # quit both register on their own. Telling someone to press a button
+        # that is only there as a fallback makes the tool look like it cannot
+        # see its own folders.
+        foreach ($step in (Get-PtrSetupStep)) {
+            Assert-True ($step.Instructions -notmatch 'Rescan') "$($step.Id) still tells the user to press Rescan."
+            $context = New-FakeContext -Root (New-FakeWowRoot -Parent $script:TestDrive)
+            $detail = (Get-PtrSetupStepStatus -Step $step -Context $context).Detail
+            Assert-True ($detail -notmatch 'Rescan') "$($step.Id) mentions Rescan in its status."
+        }
+    }
+
     It 'tells the user the restore command when checking the UI' {
         Assert-True ((Get-PtrSetupStep -Id 'verify_in_game').Instructions -match '/abs restore') `
             'The closing step should say how to put the bars back.'
