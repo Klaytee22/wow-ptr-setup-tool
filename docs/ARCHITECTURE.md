@@ -85,7 +85,7 @@ thousands of files. Two things follow.
 
 **A plan is built once per refresh.** The status, the file list on the card, and the
 footer total all want the same answer, and the window used to ask for it three times —
-27 tree walks to open a window with nine steps in it. `Update-Steps` builds each plan
+27 tree walks to open a window with eleven steps in it. `Update-Steps` builds each plan
 once, keeps it in `$script:Plans`, and passes it to `Get-PtrSetupStepStatus -Action`;
 `Update-Summary` reads the same cache.
 
