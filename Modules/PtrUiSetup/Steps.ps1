@@ -53,6 +53,12 @@ function New-PtrSetupContext {
         # Add the PTR character's key to each copied addon's profileKeys table so
         # the profile its live counterpart used is the one that loads.
         PointProfilesAtPtr    = $true
+        # Give AceDB's region lookup a fallback in the PTR's copy of the library,
+        # without which every Ace3 addon fails to initialise on a PTR realm. On
+        # by default: the failure it prevents is a UI that comes up broken with
+        # nothing but an in-game Lua traceback to explain it, and someone who
+        # would know to tick this is someone who already knows to patch it.
+        PatchPtrLibraries     = $true
     }
     if ($Options) {
         foreach ($key in $Options.Keys) { $defaults[$key] = $Options[$key] }
@@ -226,7 +232,7 @@ $script:PtrSetupSteps = @(
         -Title 'Copy your addons' `
         -Summary 'Copies Interface\AddOns from the live client to the PTR client.' `
         -SourceNote 'The addon folder itself — without it, the copied settings have nothing to configure.' `
-        -Instructions 'Addons are plain folders, so this is a straight copy. With "Replace the PTR addon folder" ticked (the guide''s "delete any addons there, then paste yours") anything on the PTR that is not in your live client is removed as well. Everything removed or overwritten is backed up first.' `
+        -Instructions 'Addons are plain folders, so this is a straight copy. With "Replace the PTR addon folder" ticked (the guide''s "delete any addons there, then paste yours") anything on the PTR that is not in your live client is removed as well. Everything removed or overwritten is backed up first. An addon carrying an old copy of the Ace3 libraries cannot start on a PTR realm at all; where that is found, the PTR''s copy of the library gets the one-line fix on the way over and your live client is left untouched.' `
         -Prerequisite {
         param($Context)
         if (-not (Test-Path -LiteralPath $Context.Source.AddOns -PathType Container)) {
@@ -236,9 +242,18 @@ $script:PtrSetupSteps = @(
     } `
         -Plan {
         param($Context)
-        return New-TreeCopyPlan -Source $Context.Source.AddOns -Destination $Context.Target.AddOns `
-            -Overwrite (Get-ContextOption -Context $Context -Name 'Overwrite') `
-            -Prune:(Get-ContextOption -Context $Context -Name 'ReplaceAddOns')
+        $overwrite = Get-ContextOption -Context $Context -Name 'Overwrite'
+        $copies = @(New-TreeCopyPlan -Source $Context.Source.AddOns -Destination $Context.Target.AddOns `
+                -Overwrite $overwrite `
+                -Prune:(Get-ContextOption -Context $Context -Name 'ReplaceAddOns'))
+
+        # The patched library stands in for the plain copy of the same file, so
+        # it is written once and a second Apply still reports itself done.
+        if (Get-ContextOption -Context $Context -Name 'PatchPtrLibraries') {
+            $patched = @(New-AceDbPatchPlan -Action $copies -Overwrite $overwrite)
+            $copies = @(Merge-FileActionPlan -Action $copies -Override $patched)
+        }
+        return @($copies)
     }
 
     New-PtrSetupStep -Id 'copy_config_wtf' -Mode 'auto' `

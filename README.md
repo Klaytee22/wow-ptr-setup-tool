@@ -73,7 +73,7 @@ console on macOS or Linux (see *Scripting it* below).
 | 9 | Launch the PTR and check the UI | manual | Closing check, with a pointer back to Restore if something looks wrong |
 
 Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
-along with the six places this tool deliberately does something different (and why).
+along with the seven places this tool deliberately does something different (and why).
 
 Every automated step is **previewable** — press *Preview changes* for the exact file
 list with nothing written — and **individually tickable**, so you can copy addons
@@ -189,17 +189,23 @@ addon carrying a stale AceDB breaks every Ace3 addon on the PTR at once, which c
 like copied settings having gone wrong. The traceback names which addon's copy is in
 play.
 
-Fix it **on the live client and then run this tool**, not on the PTR: patch the PTR copy
-and the next Apply overwrites it with the live one. In
-`Interface\AddOns\<Addon>\Libs\AceDB-3.0\AceDB-3.0.lua`, give the key a fallback:
+**This tool fixes it for you**, and the option — *Fix the PTR copy of Ace3 so addons
+using it can start* — is on by default. It gives the lookup a fallback:
 
 ```lua
 local regionKey = regionTable[GetCurrentRegion()] or "US"
 ```
 
-That value only namespaces `factionrealmregion`-scoped data, so it is harmless on live.
-Dropping a current Ace3 `Libs\AceDB-3.0` into any one addon works too, and fixes
-everything using Ace3 in one go.
+Three things bound what that does. It writes **only to the PTR**; your live client is
+read and never touched, which is the invariant the whole tool rests on and which an
+integration test asserts. It touches **only files named `AceDB-3.0.lua`**, and only that
+one assignment — everything else in the file, down to the line endings, is byte for byte
+the live copy. And a library that already has a fallback is left alone, so a current
+Ace3 passes through untouched and a second Apply still reports itself done.
+
+It is a workaround, not a fix. The real answer is updating the addon that carries the
+stale copy, or dropping a current Ace3 `Libs\AceDB-3.0` into any one addon so it wins
+the LibStub version race. Untick the option if you would rather do that yourself.
 
 Errors from the addon while *saving* on live are a different matter and usually harmless:
 macros are the part these addons handle least well, since a macro that does not exist on

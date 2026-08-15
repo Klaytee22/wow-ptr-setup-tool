@@ -159,6 +159,19 @@ foreach ($addon in $addons) {
     Write-MockFile (Join-Path $live "Interface/AddOns/$addon/$addon.toc") "## Interface: 20504`n## Title: $addon`n## Notes: LIVE copy`n$addon.lua`n"
     Write-MockFile (Join-Path $live "Interface/AddOns/$addon/$addon.lua") "-- LIVE $addon`nlocal _ = 'installed on the live client'`n"
 }
+# One addon carries an old Ace3, the way a real install nearly always does. Its
+# region lookup has no fallback, so on a PTR realm AceDB throws while the addon
+# is initialising and every Ace3 addon goes down with it — see the AceDB section
+# of the README. The PTR's copy gets the one-line fix; this one never changes.
+$staleAceDb = @'
+local regionTable = { "US", "KR", "EU", "TW", "CN" }
+local charKey = UnitName("player") .. " - " .. GetRealmName()
+local regionKey = regionTable[GetCurrentRegion()]
+local factionrealmregionKey = factionrealmKey .. " - " .. regionKey
+-- LIVE copy of AceDB-3.0
+'@
+Write-MockFile (Join-Path $live 'Interface/AddOns/Bartender4/Libs/AceDB-3.0/AceDB-3.0.lua') $staleAceDb
+
 Write-MockFile (Join-Path $live 'WTF/Config.wtf') $liveConfig
 New-MockAccount -InstallRoot $live -Realm $liveRealm -CharacterName $characters -Origin 'LIVE'
 

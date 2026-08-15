@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'SavedVariables.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
+foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'SavedVariables.ps1', 'AddOnPatch.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
     . (Join-Path $PSScriptRoot $part)
 }
 
@@ -79,6 +79,10 @@ Export-ModuleMember -Function @(
     'Resolve-ProfileKeyMapping'
     'New-ProfileKeyPlan'
     'Merge-FileActionPlan'
+    # Ace3 region workaround
+    'Test-AceDbRegionBug'
+    'Update-AceDbRegionKey'
+    'New-AceDbPatchPlan'
     # Steps
     'New-PtrSetupContext'
     'Test-ContextReady'

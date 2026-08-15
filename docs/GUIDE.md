@@ -154,6 +154,20 @@ What this cannot reach is an addon that stores per-character data under its own
 scheme rather than through `profileKeys` — those still need a profile picked in
 game, as the guide says.
 
+**7. It patches the PTR's copy of AceDB-3.0.** Nothing to do with the guide, which
+predates the problem. AceDB looks its region up in a five-entry table and a PTR realm
+reports an id that is not in it, so the key is nil and the concatenation on the next
+line throws while the addon is initialising. LibStub hands every addon the highest
+version present, so one stale copy stops every Ace3 addon on the PTR from starting —
+and the symptom is a UI that looks like the copy failed.
+
+The one-line fallback goes into the PTR's copy on the way over. The live client is
+read and never written, which is the rule this tool does not break for anything;
+only files named `AceDB-3.0.lua` are considered; only that assignment changes; and a
+copy that is already guarded is left alone. It is the **Fix the PTR copy of Ace3**
+option, on by default because the failure it prevents is silent everywhere except an
+in-game Lua traceback.
+
 **5. Deleting the PTR addon folder is reversible here.** The guide says delete; this
 copies everything it removes into a backup first, so Restore puts it back — including
 addons that only ever existed on the PTR.

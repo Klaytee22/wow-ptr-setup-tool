@@ -163,6 +163,41 @@ Describe 'A full run, instruction by instruction' {
         Assert-True ($saved -match 'LIVE account-wide') 'Account-wide profiles did not come across.'
     }
 
+    It 'fixes the Ace3 region lookup in the PTR copy of the library' {
+        # Without this the addon cannot start on a PTR realm at all, and because
+        # LibStub shares one copy, neither can any other Ace3 addon.
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        $lib = Join-Path $mock.Context.Target.AddOns 'Bartender4/Libs/AceDB-3.0/AceDB-3.0.lua'
+        Assert-True (Test-Path -LiteralPath $lib) 'The library did not come across at all.'
+        $text = Get-Content -LiteralPath $lib -Raw
+        Assert-True ($text -match 'GetCurrentRegion\(\)\] or "US"') "The PTR copy was not patched:`n$text"
+        Assert-True ($text -match 'LIVE copy of AceDB') 'The rest of the file should be the live one, unchanged.'
+    }
+
+    It 'never touches the live copy of the library' {
+        # The invariant the whole tool rests on. A patch that reached back into
+        # the live client would be a far worse bug than the one it fixes.
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $liveLib = Join-Path $mock.Context.Source.AddOns 'Bartender4/Libs/AceDB-3.0/AceDB-3.0.lua'
+        $before = Get-Content -LiteralPath $liveLib -Raw
+
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        Assert-Equal $before (Get-Content -LiteralPath $liveLib -Raw) 'The live library was modified.'
+        Assert-True ($before -notmatch 'or "US"') 'The live copy should still carry the bug.'
+    }
+
+    It 'leaves the library alone when the option is off' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $mock.Context.Options['PatchPtrLibraries'] = $false
+        $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
+
+        $lib = Join-Path $mock.Context.Target.AddOns 'Bartender4/Libs/AceDB-3.0/AceDB-3.0.lua'
+        Assert-True ((Get-Content -LiteralPath $lib -Raw) -notmatch 'or "US"') 'The patch ran with the option turned off.'
+    }
+
     It 'points the PTR character at the profile its live counterpart used' {
         # The guide's "log in and go to each addon and copy the profile from your
         # Live Character's profile", done here instead: AceDB looks the profile up
