@@ -168,6 +168,38 @@ in this order:
    `WTF\Config.wtf` — step 8 sets it, and without it everything built for live reads as
    out of date.
 
+### Macros all named the same thing
+
+Classic prints a macro's name on the action button, so anyone who wants clean bars ends
+up naming every macro the same single space. Nothing that identifies a macro by name can
+then tell them apart — ActionBarSaver says so outright, and a restore fails with a page
+of *unable to restore item to slot*.
+
+There is an option, **Give blank-named macros unique names**, which does this to the
+PTR's copy on the way over. The names are built from spaces and no-break spaces, so they
+are unique to anything reading them and still invisible on a bar.
+
+**On its own that is not enough for an action bar saver**, and it is worth being clear
+why. The addon records, for each slot, the name of the macro in it — and it does that
+*on your live client*, where every name is still a space. A profile saved from thirty
+identically-named macros is already ambiguous; giving the PTR unique names afterwards
+cannot recover which slot wanted which macro.
+
+So the names have to be fixed on the **live** client, before the profile is saved. This
+tool will not do that — it never writes to your live client, which is the rule the whole
+thing rests on. There is a separate script you run yourself:
+
+```powershell
+# quit WoW first — it rewrites macros-cache.txt on exit
+.\tools\Rename-BlankMacros.ps1 -Path 'C:\...\WTF\Account\<ACCOUNT>\macros-cache.txt'
+```
+
+It reports what it would do and writes nothing until you add `-Apply`, and it keeps the
+original alongside as `macros-cache.txt.before-rename`. Do the character-level file too,
+with `-Scope Character` — the two sets share one namespace in game, so they are numbered
+apart. Then log in, re-save your action bar profile, and the restore has something to
+work with.
+
 ### An addon that loads on live and errors on the PTR
 
 If the error names `Libs/AceDB-3.0/AceDB-3.0.lua` and says **"attempt to concatenate

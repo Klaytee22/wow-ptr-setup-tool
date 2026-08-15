@@ -59,6 +59,10 @@ function New-PtrSetupContext {
         # nothing but an in-game Lua traceback to explain it, and someone who
         # would know to tick this is someone who already knows to patch it.
         PatchPtrLibraries     = $true
+        # Give every blank-named macro a unique, still-invisible name in the
+        # PTR's copy. Anything that identifies a macro by name — an action bar
+        # saver above all — cannot tell two apart otherwise.
+        NameBlankMacros       = $true
     }
     if ($Options) {
         foreach ($key in $Options.Keys) { $defaults[$key] = $Options[$key] }
@@ -327,11 +331,18 @@ $script:PtrSetupSteps = @(
         $actions = [System.Collections.Generic.List[psobject]]::new()
         foreach ($action in $copies) { $actions.Add($action) }
         if (Get-ContextOption -Context $Context -Name 'IncludeMacrosBindings') {
+            $extras = [System.Collections.Generic.List[psobject]]::new()
             foreach ($name in $script:AccountExtraFiles) {
                 foreach ($action in (New-SingleFileCopyPlan -Source (Join-Path $sourceDir $name) -Destination (Join-Path $targetDir $name) -Overwrite $overwrite)) {
-                    $actions.Add($action)
+                    $extras.Add($action)
                 }
             }
+            $extraActions = @($extras)
+            if (Get-ContextOption -Context $Context -Name 'NameBlankMacros') {
+                $renamed = @(New-MacroNamePlan -Action $extraActions -Scope 'Account' -Overwrite $overwrite)
+                $extraActions = @(Merge-FileActionPlan -Action $extraActions -Override $renamed)
+            }
+            foreach ($action in $extraActions) { $actions.Add($action) }
         }
         return @($actions)
     }
@@ -375,11 +386,21 @@ $script:PtrSetupSteps = @(
             foreach ($action in $copies) {
                 $actions.Add($action)
             }
+            $extras = [System.Collections.Generic.List[psobject]]::new()
             foreach ($name in $names) {
                 foreach ($action in (New-SingleFileCopyPlan -Source (Join-Path $sourceDir $name) -Destination (Join-Path $targetDir $name) -Overwrite $overwrite)) {
-                    $actions.Add($action)
+                    $extras.Add($action)
                 }
             }
+            $extraActions = @($extras)
+            # Scope 'Character' on purpose: in game the two sets of macros share
+            # one namespace, so numbering both files from zero would give one
+            # macro of each the same name.
+            if (Get-ContextOption -Context $Context -Name 'NameBlankMacros') {
+                $renamed = @(New-MacroNamePlan -Action $extraActions -Scope 'Character' -Overwrite $overwrite)
+                $extraActions = @(Merge-FileActionPlan -Action $extraActions -Override $renamed)
+            }
+            foreach ($action in $extraActions) { $actions.Add($action) }
         }
         return @($actions)
     }

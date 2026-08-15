@@ -236,6 +236,7 @@ $script:Invalidates = @{
     AllowOutOfDate        = @('copy_config_wtf', 'allow_out_of_date_addons')
     PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
     PatchPtrLibraries     = @('copy_addons')
+    NameBlankMacros       = @('copy_account_saved_variables', 'copy_character_data')
 }
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
@@ -1271,6 +1272,7 @@ function Update-Options {
         $ui.OutOfDateOption.IsChecked = [bool]$script:Context.Options['AllowOutOfDate']
         $ui.ProfileKeysOption.IsChecked = [bool]$script:Context.Options['PointProfilesAtPtr']
         $ui.LibraryPatchOption.IsChecked = [bool]$script:Context.Options['PatchPtrLibraries']
+        $ui.MacroNameOption.IsChecked = [bool]$script:Context.Options['NameBlankMacros']
     }
     finally {
         $script:Suppress = $false
@@ -1635,6 +1637,7 @@ $optionMap = @{
     OutOfDateOption     = 'AllowOutOfDate'
     ProfileKeysOption   = 'PointProfilesAtPtr'
     LibraryPatchOption  = 'PatchPtrLibraries'
+    MacroNameOption     = 'NameBlankMacros'
 }
 foreach ($controlName in $optionMap.Keys) {
     $ui[$controlName].Tag = $optionMap[$controlName]

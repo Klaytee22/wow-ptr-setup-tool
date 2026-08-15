@@ -16,7 +16,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'SavedVariables.ps1', 'AddOnPatch.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
+foreach ($part in @('Detect.ps1', 'ConfigWtf.ps1', 'FileOps.ps1', 'SavedVariables.ps1', 'AddOnPatch.ps1', 'MacroNames.ps1', 'Steps.ps1', 'Session.ps1', 'Settings.ps1')) {
     . (Join-Path $PSScriptRoot $part)
 }
 
@@ -83,6 +83,11 @@ Export-ModuleMember -Function @(
     'Test-AceDbRegionBug'
     'Update-AceDbRegionKey'
     'New-AceDbPatchPlan'
+    # Macro names
+    'Get-BlankMacroName'
+    'Get-MacroCacheEntry'
+    'Set-BlankMacroName'
+    'New-MacroNamePlan'
     # Steps
     'New-PtrSetupContext'
     'Test-ContextReady'
