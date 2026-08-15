@@ -59,10 +59,10 @@ function New-PtrSetupContext {
         # nothing but an in-game Lua traceback to explain it, and someone who
         # would know to tick this is someone who already knows to patch it.
         PatchPtrLibraries     = $true
-        # Give every blank-named macro a unique, still-invisible name in the
-        # PTR's copy. Anything that identifies a macro by name — an action bar
-        # saver above all — cannot tell two apart otherwise.
-        NameBlankMacros       = $true
+        # Break ties between macros sharing a name in the PTR's copy, with a
+        # suffix that draws as nothing. Anything identifying a macro by name —
+        # an action bar saver above all — cannot tell two apart otherwise.
+        NameConflictingMacros       = $true
     }
     if ($Options) {
         foreach ($key in $Options.Keys) { $defaults[$key] = $Options[$key] }
@@ -150,6 +150,12 @@ function New-PtrSetupStep {
         [Parameter(Mandatory)] [ValidateSet('auto', 'manual')] [string] $Mode,
         [string] $Instructions = '',
         [string] $SourceNote = '',
+        # Which install this step writes into. Everything writes to the PTR bar
+        # one, and that one is opt-in for exactly that reason.
+        [ValidateSet('Source', 'Target')] [string] $WritesTo = 'Target',
+        # Left unticked when the window first draws the list, however ready it
+        # is. For anything a user should choose rather than be handed.
+        [switch] $OptIn,
         [scriptblock] $Prerequisite,
         [scriptblock] $Plan,
         [scriptblock] $Status
@@ -163,6 +169,8 @@ function New-PtrSetupStep {
         Mode         = $Mode
         Instructions = $Instructions
         SourceNote   = $SourceNote
+        WritesTo     = $WritesTo
+        OptIn        = [bool]$OptIn
         Prerequisite = $Prerequisite
         Plan         = $Plan
         Status       = $Status
@@ -230,6 +238,34 @@ $script:PtrSetupSteps = @(
             return New-PtrSetupStepStatus -State 'ready' -Detail ("Still running: " + (@($running.Name | Select-Object -Unique) -join ', ') + '. Quit the game, then press Rescan.')
         }
         return New-PtrSetupStepStatus -State 'done' -Detail 'No WoW client is running.'
+    }
+
+    New-PtrSetupStep -Id 'name_live_macros' -Mode 'auto' -WritesTo 'Source' -OptIn `
+        -Title 'Break ties between macros on your LIVE client' `
+        -Summary 'The only step that writes to your live client. Off unless you tick it.' `
+        -SourceNote 'Not in the guide. An action bar saver records the name of the macro in each slot, and it does that on live.' `
+        -Instructions 'An action bar saver writes down, for every slot, the name of the macro in it — and it does that on your live client. Thirty macros all called " " make that profile ambiguous the moment it is saved, and no amount of fixing on the PTR side can recover which slot wanted which macro. This gives the duplicates a suffix built from spaces, so they read exactly the same on your bars and are unique to anything looking them up. The first macro of each name keeps it untouched. Do this, then log in on live and save your action bar profile — in that order, or the profile is written from the old names. Everything replaced is backed up first, and Restore puts it back.' `
+        -Prerequisite {
+        param($Context)
+        if (-not $Context.SourceAccount) { return 'Pick an account folder on the live client first.' }
+        return $null
+    } `
+        -Plan {
+        param($Context)
+        $sourceDir = Get-ContextAccountPath -Context $Context -Side 'Source'
+        if (-not $sourceDir) { return @() }
+
+        $actions = [System.Collections.Generic.List[psobject]]::new()
+        foreach ($action in (New-MacroNameFixPlan -Path (Join-Path $sourceDir 'macros-cache.txt') -Scope 'Account')) {
+            $actions.Add($action)
+        }
+        foreach ($pair in (Get-ContextCharacter -Context $Context)) {
+            $characterDir = Get-WowCharacterPath -Install $Context.Source -Character $pair.Source
+            foreach ($action in (New-MacroNameFixPlan -Path (Join-Path $characterDir 'macros-cache.txt') -Scope 'Character')) {
+                $actions.Add($action)
+            }
+        }
+        return @($actions)
     }
 
     New-PtrSetupStep -Id 'copy_addons' -Mode 'auto' `
@@ -338,7 +374,7 @@ $script:PtrSetupSteps = @(
                 }
             }
             $extraActions = @($extras)
-            if (Get-ContextOption -Context $Context -Name 'NameBlankMacros') {
+            if (Get-ContextOption -Context $Context -Name 'NameConflictingMacros') {
                 $renamed = @(New-MacroNamePlan -Action $extraActions -Scope 'Account' -Overwrite $overwrite)
                 $extraActions = @(Merge-FileActionPlan -Action $extraActions -Override $renamed)
             }
@@ -396,7 +432,7 @@ $script:PtrSetupSteps = @(
             # Scope 'Character' on purpose: in game the two sets of macros share
             # one namespace, so numbering both files from zero would give one
             # macro of each the same name.
-            if (Get-ContextOption -Context $Context -Name 'NameBlankMacros') {
+            if (Get-ContextOption -Context $Context -Name 'NameConflictingMacros') {
                 $renamed = @(New-MacroNamePlan -Action $extraActions -Scope 'Character' -Overwrite $overwrite)
                 $extraActions = @(Merge-FileActionPlan -Action $extraActions -Override $renamed)
             }
@@ -595,7 +631,10 @@ function Invoke-PtrSetupStep {
     }
 
     try {
-        $result = Invoke-FileActionPlan -Action $actions -InstallPath $Context.Target.Path -Label $Step.Id `
+        # Fenced to whichever install the step declares, not always the PTR —
+        # the fence itself is what stops a mis-planned action escaping, so it
+        # has to name the folder actually being written to.
+        $result = Invoke-FileActionPlan -Action $actions -InstallPath $Context.($Step.WritesTo).Path -Label $Step.Id `
             -PreviewOnly:$PreviewOnly -OnProgress $OnProgress
     }
     catch {

@@ -225,18 +225,18 @@ $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
 # folder to find that out is the difference between a dropdown that responds and
 # one that appears to hang. Anything not listed here clears the lot.
 $script:Invalidates = @{
-    account               = @('copy_account_saved_variables', 'copy_character_data')
+    account               = @('copy_account_saved_variables', 'copy_character_data', 'name_live_macros')
     # The account-level file is in here too: pointing addon profiles at the PTR
     # character adds a key per mapped character to it, so changing the mapping
     # changes what that step would write.
-    character             = @('copy_account_saved_variables', 'copy_character_data')
+    character             = @('copy_account_saved_variables', 'copy_character_data', 'name_live_macros')
     ReplaceAddOns         = @('copy_addons')
     IncludeMacrosBindings = @('copy_account_saved_variables', 'copy_character_data')
     IncludeChatCache      = @('copy_character_data')
     AllowOutOfDate        = @('copy_config_wtf', 'allow_out_of_date_addons')
     PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
     PatchPtrLibraries     = @('copy_addons')
-    NameBlankMacros       = @('copy_account_saved_variables', 'copy_character_data')
+    NameConflictingMacros       = @('copy_account_saved_variables', 'copy_character_data')
 }
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
@@ -958,7 +958,7 @@ function Update-Steps {
         # every tick box dead until the slowest folder had been walked, which
         # reads as a window that does not work.
         $blocker = if ($step.Mode -eq 'auto') { Get-PtrSetupStepBlocker -Step $step -Context $script:Context } else { $null }
-        if (-not $script:SelectedTouched -and $step.Mode -eq 'auto' -and -not $blocker) {
+        if (-not $script:SelectedTouched -and $step.Mode -eq 'auto' -and -not $blocker -and -not $step.OptIn) {
             $null = $script:Selected.Add($step.Id)
         }
 
@@ -983,7 +983,7 @@ function Update-Steps {
 
     # Cheapest first, so the single-file steps answer immediately and the addon
     # folder — much the slowest — is the one left filling in.
-    $order = @('copy_config_wtf', 'allow_out_of_date_addons', 'copy_character_data',
+    $order = @('name_live_macros', 'copy_config_wtf', 'allow_out_of_date_addons', 'copy_character_data',
         'copy_account_saved_variables', 'copy_addons')
     $queued = @($pending | Sort-Object { $order.IndexOf($_) })
     Start-PlanRequest -StepId $queued
@@ -1251,12 +1251,17 @@ function Update-Summary {
 
 function Update-Backups {
     $ui.BackupCombo.Items.Clear()
-    if ($script:Context.Target) {
-        foreach ($backup in (Get-PtrSetupBackup -InstallPath $script:Context.Target.Path)) {
+    # Both installs. The live one only ever has backups if the macro-name step
+    # has been run, and a backup you cannot see in the list is not an undo.
+    foreach ($side in @('Target', 'Source')) {
+        if (-not $script:Context.$side) { continue }
+        foreach ($backup in (Get-PtrSetupBackup -InstallPath $script:Context.$side.Path)) {
+            $backup | Add-Member -NotePropertyName 'InstallPath' -NotePropertyValue $script:Context.$side.Path -Force
+            if ($side -eq 'Source') { $backup.Display = 'LIVE — ' + $backup.Display }
             $null = $ui.BackupCombo.Items.Add($backup)
         }
-        if ($ui.BackupCombo.Items.Count) { $ui.BackupCombo.SelectedIndex = 0 }
     }
+    if ($ui.BackupCombo.Items.Count) { $ui.BackupCombo.SelectedIndex = 0 }
     # Set last, and on every path — returning early here used to leave the button
     # looking usable with no backups behind it.
     $ui.RestoreButton.IsEnabled = ($ui.BackupCombo.Items.Count -gt 0)
@@ -1272,7 +1277,7 @@ function Update-Options {
         $ui.OutOfDateOption.IsChecked = [bool]$script:Context.Options['AllowOutOfDate']
         $ui.ProfileKeysOption.IsChecked = [bool]$script:Context.Options['PointProfilesAtPtr']
         $ui.LibraryPatchOption.IsChecked = [bool]$script:Context.Options['PatchPtrLibraries']
-        $ui.MacroNameOption.IsChecked = [bool]$script:Context.Options['NameBlankMacros']
+        $ui.MacroNameOption.IsChecked = [bool]$script:Context.Options['NameConflictingMacros']
     }
     finally {
         $script:Suppress = $false
@@ -1373,6 +1378,16 @@ function Invoke-Run {
         $deletes = @($planned | Where-Object { $_.Kind -eq 'delete' }).Count
         $message = "Apply $($stepIds.Count) step(s) to $($script:Context.Target.Path)?"
         if ($deletes) { $message += "`n`n$deletes file(s) will be REMOVED from the PTR folder." }
+
+        # The one thing in here that does not stay inside the PTR folder. Ticking
+        # it is already a deliberate act; being told again on the way past is the
+        # least this can do.
+        $live = @((Get-PtrSetupStep | Where-Object { $stepIds -contains $_.Id -and $_.WritesTo -eq 'Source' }).Title)
+        if ($live.Count) {
+            $message += "`n`nThis will also write to your LIVE client at $($script:Context.Source.Path):`n  " +
+            ($live -join "`n  ") + "`n`nThat is the only step that does, and it is off unless you tick it."
+        }
+
         $message += "`n`nEverything overwritten or removed is backed up first."
 
         # WoW rewrites WTF as it exits, so copying under a running client is wasted work.
@@ -1637,7 +1652,7 @@ $optionMap = @{
     OutOfDateOption     = 'AllowOutOfDate'
     ProfileKeysOption   = 'PointProfilesAtPtr'
     LibraryPatchOption  = 'PatchPtrLibraries'
-    MacroNameOption     = 'NameBlankMacros'
+    MacroNameOption     = 'NameConflictingMacros'
 }
 foreach ($controlName in $optionMap.Keys) {
     $ui[$controlName].Tag = $optionMap[$controlName]
@@ -1665,7 +1680,7 @@ $ui.RestoreButton.Add_Click({
                 'WoW PTR UI Setup', 'OKCancel', 'Question')
             if ($answer -ne 'OK') { return }
 
-            $undo = Restore-PtrSetupBackup -InstallPath $script:Context.Target.Path -BackupId $backup.Id
+            $undo = Restore-PtrSetupBackup -InstallPath $backup.InstallPath -BackupId $backup.Id
             Write-Result "[ok]   Undid $($backup.Id): put back $($undo.Restored) file(s), removed $($undo.Removed) added file(s)."
             Update-All
         }

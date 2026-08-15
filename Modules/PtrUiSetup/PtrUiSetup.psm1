@@ -84,10 +84,12 @@ Export-ModuleMember -Function @(
     'Update-AceDbRegionKey'
     'New-AceDbPatchPlan'
     # Macro names
-    'Get-BlankMacroName'
+    'Get-InvisibleMacroSuffix'
     'Get-MacroCacheEntry'
-    'Set-BlankMacroName'
+    'Get-MacroNameConflict'
+    'Resolve-MacroNameConflict'
     'New-MacroNamePlan'
+    'New-MacroNameFixPlan'
     # Steps
     'New-PtrSetupContext'
     'Test-ContextReady'

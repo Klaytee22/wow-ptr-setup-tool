@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Give blank-named macros unique names that still render as nothing.
+    Make duplicated macro names unique without changing how they look.
 
 .DESCRIPTION
     Separate from the window on purpose. PtrUiSetup.ps1 never writes to your
@@ -15,9 +15,11 @@
     the PTR side cannot repair a profile that was already ambiguous when it was
     written.
 
-    The names are built from spaces and no-break spaces, so they are unique to
-    anything reading them and invisible on an action bar. Nothing else in the
-    file changes: bodies, icons, ids, ordering and line endings all survive.
+    The first macro of each duplicated name keeps it; the rest get a suffix
+    built from spaces and no-break spaces, so they are unique to anything
+    reading them and look identical on a bar. A macro whose name is already its
+    own is not touched. Nothing else in the file changes: bodies, icons, ids,
+    ordering and line endings all survive.
 
     QUIT WORLD OF WARCRAFT FIRST. It rewrites macros-cache.txt when it exits and
     will put the old names straight back.
@@ -29,17 +31,17 @@
 
 .PARAMETER Scope
     Account for the account-level file, Character for a character's own. The two
-    sets share one namespace in game, so they are numbered differently to stop a
-    macro of each ending up with the same name.
+    sets share one namespace in game, so the suffixes are drawn from different
+    characters and a generated name in one can never equal one in the other.
 
 .PARAMETER Apply
     Write the change. Without it this only reports what it would do.
 
 .EXAMPLE
-    .\tools\Rename-BlankMacros.ps1 -Path 'C:\...\WTF\Account\12345#1\macros-cache.txt'
+    .\tools\Rename-DuplicateMacros.ps1 -Path 'C:\...\WTF\Account\12345#1\macros-cache.txt'
 
 .EXAMPLE
-    .\tools\Rename-BlankMacros.ps1 -Path '...\Hunnybuns\macros-cache.txt' -Scope Character -Apply
+    .\tools\Rename-DuplicateMacros.ps1 -Path '...\Hunnybuns\macros-cache.txt' -Scope Character -Apply
 #>
 
 [CmdletBinding()]
@@ -66,21 +68,27 @@ if ($running.Count -gt 0) {
 
 $text = Read-TextFileUtf8 -Path $Path
 $before = @(Get-MacroCacheEntry -Text $text)
-$blank = @($before | Where-Object { $_.IsBlank })
+$conflicts = @(Get-MacroNameConflict -Text $text)
+$affected = (@($conflicts | ForEach-Object { $_.Count - 1 }) | Measure-Object -Sum).Sum
+if (-not $affected) { $affected = 0 }
 
 Write-Host ''
 Write-Host "  $Path" -ForegroundColor Cyan
-Write-Host "  $($before.Count) macro(s), $($blank.Count) with a blank name." -ForegroundColor Cyan
+Write-Host "  $($before.Count) macro(s), $($conflicts.Count) name(s) used more than once." -ForegroundColor Cyan
+foreach ($conflict in ($conflicts | Select-Object -First 5)) {
+    $shown = if ([string]::IsNullOrWhiteSpace($conflict.Name)) { '(blank)' } else { $conflict.Name }
+    Write-Host "    $($conflict.Count) x `"$shown`""
+}
 
-if ($blank.Count -eq 0) {
+if ($conflicts.Count -eq 0) {
     Write-Host '  Nothing to do — every macro already has a name of its own.' -ForegroundColor Green
     Write-Host ''
     return
 }
 
-$updated = Set-BlankMacroName -Text $text -Scope $Scope
+$updated = Resolve-MacroNameConflict -Text $text -Scope $Scope
 if ($null -eq $updated) {
-    Write-Host '  Already named — the blanks are the invisible names this writes.' -ForegroundColor Green
+    Write-Host '  Already unique — the ties are broken by the invisible suffixes this writes.' -ForegroundColor Green
     Write-Host ''
     return
 }
@@ -88,7 +96,7 @@ if ($null -eq $updated) {
 # Shown as code points, because the whole point is that they look like nothing.
 $after = @(Get-MacroCacheEntry -Text $updated)
 Write-Host ''
-Write-Host '  New names (invisible on a bar; shown here as code points):' -ForegroundColor Cyan
+Write-Host "  $affected macro(s) get a suffix (invisible on a bar; code points shown):" -ForegroundColor Cyan
 foreach ($entry in ($after | Select-Object -First 5)) {
     $points = (@($entry.Name.ToCharArray() | ForEach-Object { 'U+{0:X4}' -f [int]$_ }) -join ' ')
     Write-Host "    $points"

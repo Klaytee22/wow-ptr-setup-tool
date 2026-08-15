@@ -45,7 +45,14 @@ function Get-TreeSnapshot {
 }
 
 function Get-AutoStepId {
-    return @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)
+    <#
+        What a default run does: every automated step the window ticks on its
+        own. Opt-in steps are left out on purpose — name_live_macros is the only
+        thing in the tool that writes to the live client, and a default run must
+        not include it. The tests below that assert the live tree is untouched
+        depend on that being true here.
+    #>
+    return @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' -and -not $_.OptIn }).Id)
 }
 
 Describe 'The mock environment' {
@@ -294,8 +301,8 @@ Describe 'A full run, instruction by instruction' {
         $accountDir = Get-ContextAccountPath -Context $mock.Context -Side 'Target'
         $characterDir = Get-WowCharacterPath -Install $mock.Context.Target -Character $mock.Context.Character[0].Target
 
-        Assert-True ((Get-Content -LiteralPath (Join-Path $accountDir 'macros-cache.txt') -Raw) -match 'AccountWide LIVE')
-        Assert-True ((Get-Content -LiteralPath (Join-Path $characterDir 'macros-cache.txt') -Raw) -match 'MACRO Pull LIVE')
+        Assert-True ((Get-Content -LiteralPath (Join-Path $accountDir 'macros-cache.txt') -Raw) -match 'LIVE macro')
+        Assert-True ((Get-Content -LiteralPath (Join-Path $characterDir 'macros-cache.txt') -Raw) -match 'LIVE macro')
     }
 
     It 'leaves the live client byte-for-byte unchanged' {
@@ -327,6 +334,73 @@ Describe 'A full run, instruction by instruction' {
         $afterFirst = Get-TreeSnapshot -Root $mock.Context.Target.Path
         $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
         Assert-Equal $afterFirst (Get-TreeSnapshot -Root $mock.Context.Target.Path)
+    }
+}
+
+Describe 'The one step that writes to the live client' {
+
+    It 'is not ticked by default' {
+        # Everything else in the tool is fenced inside the PTR folder. This one
+        # is not, so it has to be something the user chooses.
+        $step = Get-PtrSetupStep -Id 'name_live_macros'
+        Assert-True $step.OptIn 'A step that writes to the live client must not be selected on its own.'
+        Assert-Equal 'Source' $step.WritesTo
+        Assert-Equal 0 @(Get-AutoStepId | Where-Object { $_ -eq 'name_live_macros' }).Count
+    }
+
+    It 'makes the duplicated live macro names unique' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $accountDir = Get-ContextAccountPath -Context $mock.Context -Side 'Source'
+        $cache = Join-Path $accountDir 'macros-cache.txt'
+        Assert-True (@(Get-MacroNameConflict -Text (Get-Content -LiteralPath $cache -Raw)).Count -gt 0) `
+            'The mock should start with names that collide.'
+
+        $null = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $mock.Context
+        Assert-Equal 0 @(Get-MacroNameConflict -Text (Get-Content -LiteralPath $cache -Raw)).Count `
+            'The live names still collide.'
+    }
+
+    It 'touches nothing on the live client but the macro caches' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $before = @{}
+        foreach ($file in (Get-RelativeFile -Root $mock.Context.Source.Path)) {
+            $before[$file.Relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        }
+
+        $null = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $mock.Context
+
+        foreach ($file in (Get-RelativeFile -Root $mock.Context.Source.Path)) {
+            if ($file.Relative -like '*macros-cache.txt') { continue }
+            if ($file.Relative -like "_ptrsetup_backups*") { continue }
+            Assert-Equal $before[$file.Relative] (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash `
+                "$($file.Relative) changed, and this step has no business touching it."
+        }
+    }
+
+    It 'writes nothing at all on a preview' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $before = Get-TreeSnapshot -Root $mock.Context.Source.Path
+        $null = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $mock.Context -PreviewOnly
+        Assert-Equal $before (Get-TreeSnapshot -Root $mock.Context.Source.Path)
+    }
+
+    It 'backs the live files up where Restore can find them' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $before = Get-TreeSnapshot -Root $mock.Context.Source.Path
+        $result = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $mock.Context
+        Assert-True ($null -ne $result.BackupPath) 'No backup was taken of the live files.'
+
+        $backups = @(Get-PtrSetupBackup -InstallPath $mock.Context.Source.Path)
+        Assert-True ($backups.Count -ge 1) 'The live backup is not listed.'
+        $null = Restore-PtrSetupBackup -InstallPath $mock.Context.Source.Path -BackupId $backups[0].Id
+        Assert-Equal $before (Get-TreeSnapshot -Root $mock.Context.Source.Path) 'Restore did not put the live client back.'
+    }
+
+    It 'reports itself done once the names are unique' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $step = Get-PtrSetupStep -Id 'name_live_macros'
+        $null = Invoke-PtrSetupStep -Step $step -Context $mock.Context
+        Assert-Equal 'done' (Get-PtrSetupStepStatus -Step $step -Context $mock.Context).State
     }
 }
 
@@ -473,7 +547,7 @@ Describe 'Running it twice' {
         $null = Invoke-PtrSetup -Context $mock.Context -StepId (Get-AutoStepId)
 
         $after = Get-TreeSnapshot -Root $mock.Context.Target.Path
-        foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+        foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' -and -not $_.OptIn })) {
             $status = Get-PtrSetupStepStatus -Step $step -Context $mock.Context
             Assert-Equal 'done' $status.State "$($step.Id) should be done after a full run, not $($status.State)."
         }

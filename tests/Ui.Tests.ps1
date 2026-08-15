@@ -276,7 +276,7 @@ Describe 'The window and its XAML' {
         $ids = @((Get-PtrSetupStep).Id)
         Assert-True ($ids -contains 'copy_addons')
         Assert-True ($ids -contains 'quit_the_game')
-        Assert-Equal 9 $ids.Count
+        Assert-Equal 10 $ids.Count
         Assert-Equal @($ids | Sort-Object -Unique).Count $ids.Count 'Step ids must be unique.'
     }
 }

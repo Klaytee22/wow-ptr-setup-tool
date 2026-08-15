@@ -23,7 +23,9 @@ function Get-PlannedDestination {
     #>
     param([Parameter(Mandatory)] [psobject] $Context)
 
-    $planned = foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' })) {
+    # Opt-in steps are excluded: this is about what a default copy carries, and
+    # name_live_macros writes to the live client rather than copying anything.
+    $planned = foreach ($step in (Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' -and -not $_.OptIn })) {
         foreach ($action in @(New-PtrSetupStepPlan -Step $step -Context $Context)) {
             if ($action.Kind -eq 'skip') { continue }
             (Get-PathRelative -Base $Context.Target.Path -Path $action.Destination) -replace '\\', '/'

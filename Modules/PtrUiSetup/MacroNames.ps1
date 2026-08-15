@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Give blank-named macros a unique name, without putting text on the bars.
+    Make macro names unique without changing what any of them look like.
 
 .DESCRIPTION
     macros-cache.txt holds one record per macro:
@@ -10,57 +10,63 @@
         /cast taunt
         END
 
-    The quoted field after the id is the name. Classic prints that name on the
-    action button, so anyone who wants clean bars ends up naming every macro the
-    same single space — and then everything that identifies a macro by name has
-    nothing to work with. ActionBarSaver says so outright: it "will not work
-    properly if you have multiple macros with the same name", which is why an
-    action bar restore fails with a page of "unable to restore item to slot".
+    The quoted field after the id is the name, and anything that identifies a
+    macro by name needs those to be distinct. ActionBarSaver says so outright:
+    it "will not work properly if you have multiple macros with the same name",
+    and an action bar restore then fails with a page of "unable to restore item
+    to slot".
 
-    So the blank ones are given names that are unique but still render as
-    nothing. Two characters that both draw as blank space act as binary digits:
+    The problem is duplication, not blankness. Classic prints a macro's name on
+    its action button, so wanting clean bars leads to naming every macro the
+    same single space — that is the common case, and it is thirty conflicts
+    rather than a special kind of name. Two macros both called "weps" break the
+    same thing just as thoroughly.
+
+    So: group by name, leave the first of each group exactly as it is, and give
+    the rest a suffix built from characters that draw as nothing —
 
         space           U+0020
         no-break space  U+00A0
 
-    Counting in those gives 30 macros names of at most five characters, well
-    inside any name length limit, and every one of them invisible on a bar.
+    counted in binary. "weps" stays "weps" on the bar and becomes unique to
+    anything reading it; a macro whose name is already its own is never touched
+    at all.
 
-    Two things make this safe to rely on. The single space already in the file
-    proves the client keeps a whitespace name across a logout rather than
-    trimming it away, so this is a small step from something known to work. And
-    the two scopes get different leading characters, because account-wide and
-    character-specific macros share one namespace in game: numbering each file
-    from zero without that would hand the same name to one of each.
+    Two things make this safe to rely on. The single space these macros already
+    carry proves the client keeps a whitespace name across a logout rather than
+    trimming it away, so this is a short step from something known to work. And
+    the two scopes take different suffix characters, because account-wide and
+    character-specific macros are one namespace to anything reading them in
+    game.
 
-    Only blank names are touched. A macro the user has actually named is left
-    exactly as it is, including duplicates of each other — renaming something
-    somebody chose is not this tool's business.
+    What it does not do is reconcile the two files against each other: a macro
+    named "weps" in each, unique within its own file, stays that way. Fixing
+    that would mean holding both files at once, and within-file duplication is
+    the case that actually happens.
 #>
 
 # Both render as blank. NBSP is in effectively every font WoW ships, which the
-# more exotic Unicode spaces are not — a name that renders as a tofu box would
+# more exotic Unicode spaces are not — a name that came out as a tofu box would
 # be worse than the problem.
 $script:MacroNameDigits = @([char]0x20, [char]0xA0)
 
 # Account-wide and character-specific macros are one namespace to anything
-# reading them in game, so the two files start from different characters and
-# cannot collide however they are numbered.
+# reading them in game, so a suffix generated for one file can never equal one
+# generated for the other.
 $script:MacroNamePrefix = @{ Account = [char]0x20; Character = [char]0xA0 }
 
 # VER <version> <id> "<name>" "<icon>"
 $script:MacroHeaderPattern = '^(?<lead>VER\s+\d+\s+\S+\s+")(?<name>(?:[^"\\]|\\.)*)(?<tail>"\s+"(?:[^"\\]|\\.)*"\s*)$'
 
-function Get-BlankMacroName {
+function Get-InvisibleMacroSuffix {
     <#
     .SYNOPSIS
-        The Index'th name in a sequence of unique, invisible macro names.
+        The Index'th suffix in a sequence of unique, invisible strings.
 
     .DESCRIPTION
-        Bijective base two over the two blank characters, so index 0 is the
-        prefix on its own and the length grows only as far as it has to. The
-        first name is a single space, which is what these macros are already
-        called — one fewer thing changing.
+        Bijective base two over the two blank characters, after the scope's own
+        character, so the length grows only as far as it has to: a hundred
+        conflicts need eight characters.
     #>
     [CmdletBinding()]
     param(
@@ -91,31 +97,53 @@ function Get-MacroCacheEntry {
 
     # No max-substrings argument: PowerShell's -split keeps trailing empty
     # entries on its own, and passing -1 does not mean "unlimited" — it comes
-    # back with the whole string in one element.
+    # back with the whole string in a single element.
     $lines = $Text -split "`r?`n"
     for ($index = 0; $index -lt $lines.Count; $index++) {
         $match = $pattern.Match($lines[$index])
         if (-not $match.Success) { continue }
-        $name = $match.Groups['name'].Value
         $entries.Add([pscustomobject]@{
-                Line    = $index
-                Name    = $name
-                IsBlank = [string]::IsNullOrWhiteSpace($name)
+                Line = $index
+                Name = $match.Groups['name'].Value
             })
     }
     return @($entries)
 }
 
-function Set-BlankMacroName {
+function Get-MacroNameConflict {
     <#
     .SYNOPSIS
-        The same cache with every blank-named macro uniquely named, or $null
-        when there were none.
+        The names that more than one macro in a cache is using.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [AllowEmptyString()] [string] $Text)
+
+    $seen = @{}
+    foreach ($entry in (Get-MacroCacheEntry -Text $Text)) {
+        if ($seen.ContainsKey($entry.Name)) { $seen[$entry.Name]++ } else { $seen[$entry.Name] = 1 }
+    }
+
+    $conflicts = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($name in $seen.Keys) {
+        if ($seen[$name] -lt 2) { continue }
+        $conflicts.Add([pscustomobject]@{ Name = $name; Count = $seen[$name] })
+    }
+    return @($conflicts | Sort-Object Count -Descending)
+}
+
+function Resolve-MacroNameConflict {
+    <#
+    .SYNOPSIS
+        The same cache with every duplicated name made unique, or $null when
+        none were.
 
     .DESCRIPTION
-        Only the name field of the header line changes. Bodies, icons, ids,
-        ordering and line endings are left exactly as they were — this file is
-        read by the game and nothing in it is ours to tidy up.
+        The first macro of each duplicated name keeps it, so the smallest
+        possible number of names change and one of every group still reads
+        exactly as the user wrote it. Only the name field of a header line is
+        touched: bodies, icons, ids, ordering and line endings are left as they
+        were, because this file is read by the game and nothing in it is ours to
+        tidy up.
     #>
     [CmdletBinding()]
     param(
@@ -124,32 +152,36 @@ function Set-BlankMacroName {
     )
 
     $entries = @(Get-MacroCacheEntry -Text $Text)
-    $blank = @($entries | Where-Object { $_.IsBlank })
-    if ($blank.Count -eq 0) { return $null }
+    if ($entries.Count -eq 0) { return $null }
 
-    # Names already in the file are out of bounds, so a generated one can never
-    # land on a macro the user named themselves.
+    # Every name in the file is out of bounds for a generated one, so a suffix
+    # can never land on a name some other macro is already using.
     $taken = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    foreach ($entry in $entries) {
-        if (-not $entry.IsBlank) { $null = $taken.Add($entry.Name) }
-    }
+    foreach ($entry in $entries) { $null = $taken.Add($entry.Name) }
 
-    $newline = if ($Text.IndexOf("`r`n", [System.StringComparison]::Ordinal) -ge 0) { "`r`n" } else { "`n" }
     $lines = $Text -split "`r?`n"
+    $newline = if ($Text.IndexOf("`r`n", [System.StringComparison]::Ordinal) -ge 0) { "`r`n" } else { "`n" }
     $pattern = [regex] $script:MacroHeaderPattern
 
+    $used = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $next = 0
     $changed = $false
-    foreach ($entry in $blank) {
-        do {
-            $name = Get-BlankMacroName -Index $next -Scope $Scope
-            $next++
-        } while ($taken.Contains($name))
-        $null = $taken.Add($name)
 
-        if ([string]::Equals($entry.Name, $name, [System.StringComparison]::Ordinal)) { continue }
+    foreach ($entry in $entries) {
+        # The first macro to claim a name keeps it. Everything after it is a
+        # conflict and gets a suffix.
+        if ($used.Add($entry.Name)) { continue }
+
+        do {
+            $candidate = $entry.Name + (Get-InvisibleMacroSuffix -Index $next -Scope $Scope)
+            $next++
+        } while ($taken.Contains($candidate))
+
+        $null = $taken.Add($candidate)
+        $null = $used.Add($candidate)
+
         $match = $pattern.Match($lines[$entry.Line])
-        $lines[$entry.Line] = $match.Groups['lead'].Value + $name + $match.Groups['tail'].Value
+        $lines[$entry.Line] = $match.Groups['lead'].Value + $candidate + $match.Groups['tail'].Value
         $changed = $true
     }
 
@@ -160,13 +192,13 @@ function Set-BlankMacroName {
 function New-MacroNamePlan {
     <#
     .SYNOPSIS
-        Named-up copies of the macro caches a plan is about to write.
+        Conflict-free copies of the macro caches a plan is about to write.
 
     .DESCRIPTION
         Driven from the copy plan, and standing in for the plain copies of the
         same files, exactly as the AceDB patch and the profile keys do. A file
-        already named up comes back as a skip rather than as nothing, so the
-        plain copy does not put the blank-named original back on the next Apply.
+        already free of conflicts comes back as a skip rather than as nothing,
+        so the plain copy does not put the original back on the next Apply.
     #>
     [CmdletBinding()]
     param(
@@ -184,11 +216,11 @@ function New-MacroNamePlan {
         $exists = Test-Path -LiteralPath $item.Destination -PathType Leaf
         if ($exists -and -not $Overwrite) { continue }
 
-        $updated = Set-BlankMacroName -Text (Read-TextFileUtf8 -Path $item.Source) -Scope $Scope
+        $updated = Resolve-MacroNameConflict -Text (Read-TextFileUtf8 -Path $item.Source) -Scope $Scope
         if ($null -eq $updated) { continue }
 
         $size = [System.Text.Encoding]::UTF8.GetByteCount($updated)
-        $note = 'blank macro names made unique'
+        $note = 'duplicate macro names made unique'
 
         if ($exists) {
             $existing = Get-Item -LiteralPath $item.Destination
@@ -205,4 +237,36 @@ function New-MacroNamePlan {
     }
 
     return @($named)
+}
+
+function New-MacroNameFixPlan {
+    <#
+    .SYNOPSIS
+        Plan a macro cache being made unique where it already sits.
+
+    .DESCRIPTION
+        In place, not copied: this is for the live client, where the file is
+        already the one the game reads. Source is left empty and the whole
+        rewritten text goes in Content, so Invoke-FileActionPlan backs the
+        original up and writes the new one exactly as it does for Config.wtf.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [ValidateSet('Account', 'Character')] [string] $Scope = 'Account'
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return @() }
+
+    $text = Read-TextFileUtf8 -Path $Path
+    $conflicts = @(Get-MacroNameConflict -Text $text)
+    if ($conflicts.Count -eq 0) { return @() }
+
+    $updated = Resolve-MacroNameConflict -Text $text -Scope $Scope
+    if ($null -eq $updated) { return @() }
+
+    $affected = (@($conflicts | ForEach-Object { $_.Count - 1 }) | Measure-Object -Sum).Sum
+    return @(New-FileAction -Kind 'overwrite' -Destination $Path `
+            -Size ([System.Text.Encoding]::UTF8.GetByteCount($updated)) `
+            -Note "$affected macro(s) renamed, $($conflicts.Count) name(s) were shared" -Content $updated)
 }

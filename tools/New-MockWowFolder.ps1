@@ -96,6 +96,19 @@ function Write-MockFile {
     [System.IO.File]::WriteAllText($FilePath, $Content, (New-Object System.Text.UTF8Encoding $false))
 }
 
+function New-MockMacroCache {
+    param([string] $Origin, [string[]] $Name)
+
+    $out = ''
+    $id = 1
+    foreach ($macroName in $Name) {
+        $out += ('VER 3 010000000100{0:X4} "{1}" "134400"' -f $id, $macroName) + "`n"
+        $out += "#showtooltip`n/say $Origin macro $id`nEND`n"
+        $id++
+    }
+    return $out
+}
+
 function New-MockCharacter {
     param([string] $Root, [string] $Name, [string] $Origin)
 
@@ -105,7 +118,7 @@ function New-MockCharacter {
     Write-MockFile (Join-Path $Root 'layout-local.txt') "-- $Origin frame layout for $Name`n"
     Write-MockFile (Join-Path $Root 'config-cache.wtf') "SET cameraDistanceMaxZoomFactor `"$(if ($Origin -eq 'LIVE') { '2.6' } else { '1.0' })`"`nSET floatingCombatTextCombatDamage `"$(if ($Origin -eq 'LIVE') { '1' } else { '0' })`"`n# $Origin`n"
     Write-MockFile (Join-Path $Root 'bindings-cache.wtf') "bind V TARGETNEARESTENEMY`n# $Origin character keybinds for $Name`n"
-    Write-MockFile (Join-Path $Root 'macros-cache.txt') "MACRO Pull $Origin`n/say Pulling!`n"
+    Write-MockFile (Join-Path $Root 'macros-cache.txt') (New-MockMacroCache -Origin $Origin -Name @(' ', ' '))
 }
 
 function New-MockBartender {
@@ -144,7 +157,10 @@ function New-MockAccount {
     Write-MockFile (Join-Path $accountRoot 'SavedVariables/WeakAuras.lua') "-- $Origin account-wide WeakAuras profiles`n"
     Write-MockFile (Join-Path $accountRoot 'SavedVariables/Plater.lua') "-- $Origin account-wide Plater profiles`n"
     Write-MockFile (Join-Path $accountRoot 'bindings-cache.wtf') "bind SHIFT-1 MULTIACTIONBAR1BUTTON1`n# $Origin account-wide keybinds`n"
-    Write-MockFile (Join-Path $accountRoot 'macros-cache.txt') "MACRO AccountWide $Origin`n/wave`n"
+    # The real format, and the real problem: several macros sharing one name.
+    # Classic prints the name on the action button, so a clean bar means naming
+    # them all the same single space — which is what breaks an action bar saver.
+    Write-MockFile (Join-Path $accountRoot 'macros-cache.txt') (New-MockMacroCache -Origin $Origin -Name @(' ', ' ', ' ', 'weps'))
     Write-MockFile (Join-Path $accountRoot 'config-cache.wtf') "SET showTutorials `"0`"`n# $Origin account cache`n"
 
     foreach ($name in $CharacterName) {

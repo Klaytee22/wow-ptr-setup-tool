@@ -231,7 +231,7 @@
                             <CheckBox x:Name="OutOfDateOption" Content="Allow out-of-date addons (checkAddonVersion 0)" Margin="0,4" />
                             <CheckBox x:Name="ProfileKeysOption" Content="Point addon profiles at your PTR character (Bartender, ElvUI, Details…)" Margin="0,4" />
                             <CheckBox x:Name="LibraryPatchOption" Content="Fix the PTR copy of Ace3 so addons using it can start (never changes your live client)" Margin="0,4" />
-                            <CheckBox x:Name="MacroNameOption" Content="Give blank-named macros unique names (invisible on your bars; needed by action bar savers)" Margin="0,4" />
+                            <CheckBox x:Name="MacroNameOption" Content="Break ties between macros that share a name (the suffix is invisible on your bars)" Margin="0,4" />
                         </StackPanel>
                         <Border Background="{StaticResource Panel2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
                                 CornerRadius="6" Padding="12" Margin="0,12,0,0">

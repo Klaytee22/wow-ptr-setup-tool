@@ -168,37 +168,59 @@ in this order:
    `WTF\Config.wtf` — step 8 sets it, and without it everything built for live reads as
    out of date.
 
-### Macros all named the same thing
+### Two macros with the same name
 
-Classic prints a macro's name on the action button, so anyone who wants clean bars ends
-up naming every macro the same single space. Nothing that identifies a macro by name can
-then tell them apart — ActionBarSaver says so outright, and a restore fails with a page
-of *unable to restore item to slot*.
+Anything that identifies a macro by name needs those names to be distinct.
+ActionBarSaver says so outright, and a restore otherwise fails with a page of *unable to
+restore item to slot*.
 
-There is an option, **Give blank-named macros unique names**, which does this to the
-PTR's copy on the way over. The names are built from spaces and no-break spaces, so they
-are unique to anything reading them and still invisible on a bar.
+The usual way to end up there is not a bug: Classic prints a macro's name on its action
+button, so wanting clean bars leads to naming every macro the same single space. Thirty
+macros called `" "` is thirty conflicts. But two both called `weps` break it just as
+thoroughly, and that is the actual problem — duplication, not blankness.
+
+There is an option, **Break ties between macros that share a name**, which fixes the
+PTR's copy on the way over. The first macro of each duplicated name keeps it; the rest
+get a suffix built from spaces and no-break spaces, so `weps` still reads as `weps` on
+the bar while being unique to anything looking it up. A macro whose name is already its
+own is never touched.
 
 **On its own that is not enough for an action bar saver**, and it is worth being clear
 why. The addon records, for each slot, the name of the macro in it — and it does that
-*on your live client*, where every name is still a space. A profile saved from thirty
-identically-named macros is already ambiguous; giving the PTR unique names afterwards
+*on your live client*, where the names still collide. A profile saved from thirty
+identically-named macros is already ambiguous; making the PTR's names unique afterwards
 cannot recover which slot wanted which macro.
 
-So the names have to be fixed on the **live** client, before the profile is saved. This
-tool will not do that — it never writes to your live client, which is the rule the whole
-thing rests on. There is a separate script you run yourself:
+So the names have to be fixed on the **live** client, before the profile is saved.
+
+There is a step for it in the window — **Break ties between macros on your LIVE client**.
+It is the only thing in the whole tool that writes outside the PTR folder, so it behaves
+differently from everything else:
+
+- **It is never ticked for you.** Every other automated step is on by default; this one
+  you have to choose.
+- The Apply confirmation names it and names the folder it will write to.
+- It is previewable like anything else, backed up before it writes, and its backup shows
+  up in the Restore dropdown marked `LIVE —`.
+- It touches nothing but `macros-cache.txt`, and within that nothing but the names.
+
+**The order matters:**
+
+1. Quit WoW — it rewrites `macros-cache.txt` on exit and would undo this.
+2. Tick that step, Apply.
+3. Log in on live and save your action bar profile. *Now*, not before — a profile saved
+   earlier was written from the old names.
+4. Run the rest of the tool, then restore the profile on the PTR.
+
+There is the same thing as a script, if you would rather do it outside the window:
 
 ```powershell
-# quit WoW first — it rewrites macros-cache.txt on exit
-.\tools\Rename-BlankMacros.ps1 -Path 'C:\...\WTF\Account\<ACCOUNT>\macros-cache.txt'
+.\tools\Rename-DuplicateMacros.ps1 -Path 'C:\...\WTF\Account\<ACCOUNT>\macros-cache.txt'
 ```
 
-It reports what it would do and writes nothing until you add `-Apply`, and it keeps the
-original alongside as `macros-cache.txt.before-rename`. Do the character-level file too,
-with `-Scope Character` — the two sets share one namespace in game, so they are numbered
-apart. Then log in, re-save your action bar profile, and the restore has something to
-work with.
+It reports what it would do and writes nothing until you add `-Apply`, keeping the
+original as `macros-cache.txt.before-rename`. Do the character-level file too, with
+`-Scope Character`.
 
 ### An addon that loads on live and errors on the PTR
 
