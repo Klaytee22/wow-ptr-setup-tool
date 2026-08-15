@@ -190,6 +190,15 @@ Describe 'The window and its XAML' {
             'The PTR character block should sit in the right-hand column.'
         Assert-True ($body -notmatch '::SetColumn\(\$combo') `
             'The live combo should be left in column 0, not moved to the right.'
+
+        # The header label and the row content take the same gutter from one
+        # variable. Written out twice they drift, and a header sitting a few
+        # pixels off its column is the kind of thing nobody reports and everyone
+        # notices.
+        Assert-True ($body -match '\$right\.Margin = \$gutter') 'The header label should take the shared gutter.'
+        Assert-True ($body -match '\$stack\.Margin = \$gutter') 'The row content should take the same gutter.'
+        Assert-Equal 1 ([regex]::Matches($body, '\$gutter = New-Object').Count) `
+            'The gutter should be worked out once, not once per column.'
     }
 
     It 'connects every option checkbox to an option that exists' {

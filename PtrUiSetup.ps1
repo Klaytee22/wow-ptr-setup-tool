@@ -237,6 +237,9 @@ $script:Invalidates = @{
     PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
     PatchPtrLibraries     = @('copy_addons')
 }
+# The gap between the two halves of the character mapping, in device-independent
+# pixels. One number so the header and the rows cannot drift apart.
+$script:MapGutter = 16
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
 $script:Suppress = $false
@@ -876,7 +879,15 @@ function Update-CharacterPanel {
     # arrow. Left to right is now the direction the copy actually goes.
     $left = New-TextBlockControl -Text 'LIVE CHARACTER' -Colour '#98A0B3' -Size 11
     $right = New-TextBlockControl -Text 'COPIES ONTO' -Colour '#98A0B3' -Size 11
+    # One gutter, used by the header label and by the row content underneath it.
+    # Both columns are star-width with nothing between them, so without this the
+    # PTR character name begins the pixel after the dropdown ends. Shared rather
+    # than written twice because the two have to line up, and nothing else in
+    # here would keep them together.
+    $gutter = New-Object System.Windows.Thickness $script:MapGutter, 0, 0, 0
+    $right.Margin = $gutter
     [System.Windows.Controls.Grid]::SetColumn($right, 1)
+    $header.Margin = New-Object System.Windows.Thickness 0, 4, 0, 2
     $null = $header.Children.Add($left)
     $null = $header.Children.Add($right)
     $null = $ui.CharacterPanel.Children.Add($header)
@@ -886,13 +897,17 @@ function Update-CharacterPanel {
 
     foreach ($target in $targets) {
         $row = New-Object System.Windows.Controls.Grid
-        $row.Margin = New-Object System.Windows.Thickness 0, 6, 0, 0
+        $row.Margin = New-Object System.Windows.Thickness 0, 10, 0, 0
         $null = $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
         $null = $row.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
 
         $name = New-TextBlockControl -Text $target.Name
         $realm = New-TextBlockControl -Text $target.Realm -Colour '#98A0B3' -Size 11
         $stack = New-Object System.Windows.Controls.StackPanel
+        $stack.Margin = $gutter
+        # Two lines of text against a one-line dropdown: centred, they read as a
+        # pair rather than as the name sitting above it.
+        $stack.VerticalAlignment = 'Center'
         $null = $stack.Children.Add($name)
         $null = $stack.Children.Add($realm)
         # Column 1: the live combo takes column 0 now.
