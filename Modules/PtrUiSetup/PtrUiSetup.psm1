@@ -56,6 +56,7 @@ Export-ModuleMember -Function @(
     'Invoke-FileActionPlan'
     'Get-PtrSetupBackup'
     'Restore-PtrSetupBackup'
+    'Remove-PtrSetupBackup'
     'Remove-EmptyFolder'
     'Test-PathWithin'
     'Get-PathRelative'
@@ -88,8 +89,9 @@ Export-ModuleMember -Function @(
     'Get-MacroCacheEntry'
     'Get-MacroNameConflict'
     'Resolve-MacroNameConflict'
-    'New-MacroNamePlan'
     'New-MacroNameFixPlan'
+    'Get-LiveMacroCachePath'
+    'Get-ActionBarAddOn'
     # Steps
     'New-PtrSetupContext'
     'Test-ContextReady'

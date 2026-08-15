@@ -65,12 +65,14 @@ console on macOS or Linux (see *Scripting it* below).
 | 1 | Install and launch the PTR client once | manual | Waits until the PTR folder has a `WTF` tree — nothing can be copied before that |
 | 2 | Copy your character to the PTR | manual | Blizzard's character copy; the tool detects the result |
 | 3 | Quit World of Warcraft before copying | manual | Ticks itself off when no WoW process is running — WoW rewrites `WTF` on exit and would undo the copy |
-| 4 | Copy your addons | auto | `Interface\AddOns` → PTR, optionally clearing PTR-only addons first |
-| 5 | Carry over `Config.wtf` | auto | Merges live settings into the PTR's file, keeping PTR realm/account keys |
-| 6 | Copy account-wide addon settings | auto | `WTF\Account\<ACCOUNT>\SavedVariables`, `bindings-cache.wtf`, macros, `config-cache.wtf`, and each addon's profile pointed at the PTR character |
-| 7 | Copy per-character settings | auto | Per character: `SavedVariables`, `AddOns.txt`, `layout-local.txt`, `config-cache.wtf`, keybinds, macros |
-| 8 | Allow out-of-date addons | auto | Sets `checkAddonVersion "0"` so live-built addons load on a higher interface version |
-| 9 | Launch the PTR and check the UI | manual | Closing check, with a pointer back to Restore if something looks wrong |
+| 4 | Break ties between macros on your LIVE client | auto, **opt-in** | The only step that writes outside the PTR folder. Never ticked for you. Tells you how many macro names collide, and gives the duplicates an invisible suffix so an action bar saver can tell them apart |
+| 5 | Save your action bars on the live client | manual | Install an action bar saver and `/abs save`, before anything is copied — the bars are server-side and this is the only way to carry them |
+| 6 | Copy your addons | auto | `Interface\AddOns` → PTR, optionally clearing PTR-only addons first, patching a stale Ace3 on the way |
+| 7 | Carry over `Config.wtf` | auto | Merges live settings into the PTR's file, keeping PTR realm/account keys |
+| 8 | Copy account-wide addon settings | auto | `WTF\Account\<ACCOUNT>\SavedVariables`, `bindings-cache.wtf`, macros, `config-cache.wtf`, and each addon's profile pointed at the PTR character |
+| 9 | Copy per-character settings | auto | Per character: `SavedVariables`, `AddOns.txt`, `layout-local.txt`, `config-cache.wtf`, keybinds, macros |
+| 10 | Allow out-of-date addons | auto | Sets `checkAddonVersion "0"` so live-built addons load on a higher interface version |
+| 11 | Launch the PTR and check the UI | manual | Closing check — enable anything unticked, `/abs restore`, and a pointer back to Restore if something looks wrong |
 
 Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
 along with the seven places this tool deliberately does something different (and why).
@@ -334,6 +336,8 @@ own, without waiting on an update here.
 
 - Nothing is written until you press **Apply** and confirm. The confirmation says how
   many files will be removed, and warns if WoW is still running.
+- **Delete all** next to Restore clears the backup folders out when they have piled up.
+  It is not an undo: it only throws away the copies kept *for* undoing.
 - Every step that writes anything backs it up first, to
   `_ptrsetup_backups\<timestamp>-<step>\` inside the PTR folder. **Restore is a real
   undo**: replaced and deleted files go back, *and* files the step added are removed,

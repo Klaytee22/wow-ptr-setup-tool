@@ -189,56 +189,6 @@ function Resolve-MacroNameConflict {
     return ($lines -join $newline)
 }
 
-function New-MacroNamePlan {
-    <#
-    .SYNOPSIS
-        Conflict-free copies of the macro caches a plan is about to write.
-
-    .DESCRIPTION
-        Driven from the copy plan, and standing in for the plain copies of the
-        same files, exactly as the AceDB patch and the profile keys do. A file
-        already free of conflicts comes back as a skip rather than as nothing,
-        so the plain copy does not put the original back on the next Apply.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [psobject[]] $Action,
-        [ValidateSet('Account', 'Character')] [string] $Scope = 'Account',
-        [bool] $Overwrite = $true
-    )
-
-    $named = [System.Collections.Generic.List[psobject]]::new()
-    foreach ($item in @($Action)) {
-        if (-not $item -or -not $item.Source) { continue }
-        $leaf = [System.IO.Path]::GetFileName($item.Destination)
-        if ($leaf -ne 'macros-cache.txt' -and $leaf -ne 'macros-cache.wtf') { continue }
-
-        $exists = Test-Path -LiteralPath $item.Destination -PathType Leaf
-        if ($exists -and -not $Overwrite) { continue }
-
-        $updated = Resolve-MacroNameConflict -Text (Read-TextFileUtf8 -Path $item.Source) -Scope $Scope
-        if ($null -eq $updated) { continue }
-
-        $size = [System.Text.Encoding]::UTF8.GetByteCount($updated)
-        $note = 'duplicate macro names made unique'
-
-        if ($exists) {
-            $existing = Get-Item -LiteralPath $item.Destination
-            if ($existing.Length -eq $size -and
-                [string]::Equals((Read-TextFileUtf8 -Path $item.Destination), $updated, [System.StringComparison]::Ordinal)) {
-                $named.Add((New-FileAction -Kind 'skip' -Destination $item.Destination -Size $size -Note 'macro names already unique'))
-                continue
-            }
-            $named.Add((New-FileAction -Kind 'overwrite' -Destination $item.Destination -Size $size -Note $note -Content $updated))
-            continue
-        }
-
-        $named.Add((New-FileAction -Kind 'create' -Destination $item.Destination -Size $size -Note $note -Content $updated))
-    }
-
-    return @($named)
-}
-
 function New-MacroNameFixPlan {
     <#
     .SYNOPSIS
@@ -269,4 +219,50 @@ function New-MacroNameFixPlan {
     return @(New-FileAction -Kind 'overwrite' -Destination $Path `
             -Size ([System.Text.Encoding]::UTF8.GetByteCount($updated)) `
             -Note "$affected macro(s) renamed, $($conflicts.Count) name(s) were shared" -Content $updated)
+}
+
+function Get-LiveMacroCachePath {
+    <#
+    .SYNOPSIS
+        The macro caches on the live client that this context covers.
+
+    .DESCRIPTION
+        The account-level one, and one per mapped character. Only files that
+        exist come back, so a caller can walk the result without checking.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [psobject] $Context)
+
+    $paths = [System.Collections.Generic.List[string]]::new()
+    $accountDir = Get-ContextAccountPath -Context $Context -Side 'Source'
+    if ($accountDir) {
+        $account = Join-Path $accountDir 'macros-cache.txt'
+        if (Test-Path -LiteralPath $account -PathType Leaf) { $paths.Add($account) }
+    }
+    foreach ($pair in (Get-ContextCharacter -Context $Context)) {
+        if (-not $pair.Source) { continue }
+        $character = Join-Path (Get-WowCharacterPath -Install $Context.Source -Character $pair.Source) 'macros-cache.txt'
+        if (Test-Path -LiteralPath $character -PathType Leaf) { $paths.Add($character) }
+    }
+    return @($paths)
+}
+
+function Get-ActionBarAddOn {
+    <#
+    .SYNOPSIS
+        Action bar saver addons installed in a client, by folder name.
+
+    .DESCRIPTION
+        Only used to tell the user whether they still have to go and install
+        one. Matched loosely on purpose: there are several of these, new ones
+        appear, and naming the one that is there is useful while saying nothing
+        about an unusual one is harmless.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [psobject] $Install)
+
+    if (-not (Test-Path -LiteralPath $Install.AddOns -PathType Container)) { return @() }
+    $found = Get-ChildItem -LiteralPath $Install.AddOns -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'actionbar.*(saver|profile)|^abs' }
+    return @($found | ForEach-Object { $_.Name } | Sort-Object)
 }

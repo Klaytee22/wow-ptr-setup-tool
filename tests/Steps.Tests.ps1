@@ -572,3 +572,56 @@ Describe 'A plan with exactly one file in it' {
         Assert-Equal 'ready' $status.State
     }
 }
+
+Describe 'Telling the user about their macros and their bars' {
+
+    It 'counts the live macro names that collide' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $cache = Join-Path (Get-ContextAccountPath -Context $context -Side 'Source') 'macros-cache.txt'
+        $null = New-TestFile -Path $cache -Content (
+            "VER 3 0100000001000001 `" `" `"1`"`n/say a`nEND`n" +
+            "VER 3 0100000001000002 `" `" `"1`"`n/say b`nEND`n")
+
+        $status = Get-PtrSetupStepStatus -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $context
+        Assert-Equal 'ready' $status.State
+        Assert-True ($status.Detail -match '2 macro') "Expected a count of the clashing macros: $($status.Detail)"
+    }
+
+    It 'reports itself done when no live macro names collide' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $cache = Join-Path (Get-ContextAccountPath -Context $context -Side 'Source') 'macros-cache.txt'
+        $null = New-TestFile -Path $cache -Content "VER 3 0100000001000001 `"solo`" `"1`"`n/say a`nEND`n"
+
+        Assert-Equal 'done' (Get-PtrSetupStepStatus -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $context).State
+    }
+
+    It 'notices whether an action bar saver is installed on the live client' {
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $context = New-FakeContext -Root $root
+        $step = Get-PtrSetupStep -Id 'save_action_bars'
+
+        $status = Get-PtrSetupStepStatus -Step $step -Context $context
+        Assert-True ($status.Detail -match 'No action bar saver') "Expected it to say none is installed: $($status.Detail)"
+
+        $null = New-TestFile -Path (Join-Path $context.Source.AddOns 'ActionBarSaverReloaded/ActionBarSaverReloaded.toc') -Content "## Title: ABS`n"
+        $status = Get-PtrSetupStepStatus -Step $step -Context $context
+        Assert-True ($status.Detail -match 'ActionBarSaverReloaded') "Expected it to name the addon: $($status.Detail)"
+    }
+
+    It 'tells the user the restore command when checking the UI' {
+        Assert-True ((Get-PtrSetupStep -Id 'verify_in_game').Instructions -match '/abs restore') `
+            'The closing step should say how to put the bars back.'
+    }
+
+    It 'tells the user the save command before anything is copied' {
+        $step = Get-PtrSetupStep -Id 'save_action_bars'
+        Assert-True ($step.Instructions -match '/abs save') 'The step should give the save command.'
+        $ids = @((Get-PtrSetupStep).Id)
+        Assert-True ([array]::IndexOf($ids, 'save_action_bars') -lt [array]::IndexOf($ids, 'copy_addons')) `
+            'Saving the bars has to come before anything is copied, or the profile is not there to copy.'
+        Assert-True ([array]::IndexOf($ids, 'name_live_macros') -lt [array]::IndexOf($ids, 'save_action_bars')) `
+            'The macro names have to be fixed before the profile is saved, or the profile is ambiguous.'
+    }
+}

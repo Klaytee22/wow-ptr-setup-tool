@@ -231,7 +231,6 @@
                             <CheckBox x:Name="OutOfDateOption" Content="Allow out-of-date addons (checkAddonVersion 0)" Margin="0,4" />
                             <CheckBox x:Name="ProfileKeysOption" Content="Point addon profiles at your PTR character (Bartender, ElvUI, Details…)" Margin="0,4" />
                             <CheckBox x:Name="LibraryPatchOption" Content="Fix the PTR copy of Ace3 so addons using it can start (never changes your live client)" Margin="0,4" />
-                            <CheckBox x:Name="MacroNameOption" Content="Break ties between macros that share a name (the suffix is invisible on your bars)" Margin="0,4" />
                         </StackPanel>
                         <Border Background="{StaticResource Panel2}" BorderBrush="{StaticResource Line}" BorderThickness="1"
                                 CornerRadius="6" Padding="12" Margin="0,12,0,0">
@@ -244,10 +243,12 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <ComboBox Grid.Column="0" x:Name="BackupCombo" DisplayMemberPath="Display" Margin="0" />
                                     <Button Grid.Column="1" x:Name="RefreshBackupsButton" Content="Refresh" />
                                     <Button Grid.Column="2" x:Name="RestoreButton" Content="Restore" />
+                                    <Button Grid.Column="3" x:Name="ClearBackupsButton" Content="Delete all" />
                                 </Grid>
                             </StackPanel>
                         </Border>

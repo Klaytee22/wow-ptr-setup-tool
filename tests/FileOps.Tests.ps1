@@ -411,3 +411,58 @@ Describe 'What the byte totals mean' {
         Assert-Equal '1.0 GB' (Format-ByteSize 1073741824)
     }
 }
+
+Describe 'Deleting backups' {
+
+    function New-BackedUpInstall {
+        param([string] $Root)
+        $install = Join-Path $Root 'ptr'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "SET a `"1`"`n"
+        foreach ($run in 1..3) {
+            $null = Invoke-FileActionPlan -InstallPath $install -Label "step$run" -Action @(
+                New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "SET a `"$run`"`n")
+        }
+        return $install
+    }
+
+    It 'removes every backup and says how much it freed' {
+        $install = New-BackedUpInstall -Root $script:TestDrive
+        Assert-Equal 3 @(Get-PtrSetupBackup -InstallPath $install).Count
+
+        $result = Remove-PtrSetupBackup -InstallPath $install
+        Assert-Equal 3 $result.Removed
+        Assert-True ($result.Freed -gt 0) 'Nothing was reported as freed.'
+        Assert-Equal 0 @(Get-PtrSetupBackup -InstallPath $install).Count
+    }
+
+    It 'removes just the one it is given' {
+        $install = New-BackedUpInstall -Root $script:TestDrive
+        $backups = @(Get-PtrSetupBackup -InstallPath $install)
+        $null = Remove-PtrSetupBackup -InstallPath $install -BackupId $backups[0].Id
+
+        $left = @(Get-PtrSetupBackup -InstallPath $install)
+        Assert-Equal 2 $left.Count
+        Assert-Equal 0 @($left | Where-Object { $_.Id -eq $backups[0].Id }).Count
+    }
+
+    It 'leaves the client itself completely alone' {
+        # Deleting backups is not an undo and must not behave like one.
+        $install = New-BackedUpInstall -Root $script:TestDrive
+        $before = Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw
+        $null = Remove-PtrSetupBackup -InstallPath $install
+        Assert-Equal $before (Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw)
+    }
+
+    It 'tidies the backup folder away once it is empty' {
+        $install = New-BackedUpInstall -Root $script:TestDrive
+        $null = Remove-PtrSetupBackup -InstallPath $install
+        Assert-False (Test-Path -LiteralPath (Join-Path $install '_ptrsetup_backups'))
+    }
+
+    It 'copes with an install that has never been backed up' {
+        $install = Join-Path $script:TestDrive 'fresh'
+        $null = New-Item -ItemType Directory -Path $install -Force
+        $result = Remove-PtrSetupBackup -InstallPath $install
+        Assert-Equal 0 $result.Removed
+    }
+}

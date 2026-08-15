@@ -236,7 +236,6 @@ $script:Invalidates = @{
     AllowOutOfDate        = @('copy_config_wtf', 'allow_out_of_date_addons')
     PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
     PatchPtrLibraries     = @('copy_addons')
-    NameConflictingMacros       = @('copy_account_saved_variables', 'copy_character_data')
 }
 $script:SelectedTouched = $false
 # Repopulating a ComboBox raises SelectionChanged; this stops that feeding back.
@@ -870,8 +869,11 @@ function Update-CharacterPanel {
     $header = New-Object System.Windows.Controls.Grid
     $null = $header.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
     $null = $header.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
-    $left = New-TextBlockControl -Text 'PTR CHARACTER' -Colour '#98A0B3' -Size 11
-    $right = New-TextBlockControl -Text 'GETS SETTINGS FROM' -Colour '#98A0B3' -Size 11
+    # Live on the left, PTR on the right, matching the account dropdowns above.
+    # They used to be the other way round here, which meant the two halves of
+    # section 2 read in opposite directions.
+    $left = New-TextBlockControl -Text 'GETS SETTINGS FROM' -Colour '#98A0B3' -Size 11
+    $right = New-TextBlockControl -Text 'PTR CHARACTER' -Colour '#98A0B3' -Size 11
     [System.Windows.Controls.Grid]::SetColumn($right, 1)
     $null = $header.Children.Add($left)
     $null = $header.Children.Add($right)
@@ -891,6 +893,8 @@ function Update-CharacterPanel {
         $stack = New-Object System.Windows.Controls.StackPanel
         $null = $stack.Children.Add($name)
         $null = $stack.Children.Add($realm)
+        # Column 1: the live combo takes column 0 now.
+        [System.Windows.Controls.Grid]::SetColumn($stack, 1)
         $null = $row.Children.Add($stack)
 
         $combo = New-Object System.Windows.Controls.ComboBox
@@ -910,7 +914,7 @@ function Update-CharacterPanel {
             }
         }
         $combo.Add_SelectionChanged({ if (-not $script:Suppress) { Invoke-Guarded { Sync-CharacterMap } } })
-        [System.Windows.Controls.Grid]::SetColumn($combo, 1)
+        # Column 0: the live character it copies from reads first, left to right.
         $null = $row.Children.Add($combo)
         $null = $ui.CharacterPanel.Children.Add($row)
     }
@@ -1265,6 +1269,7 @@ function Update-Backups {
     # Set last, and on every path — returning early here used to leave the button
     # looking usable with no backups behind it.
     $ui.RestoreButton.IsEnabled = ($ui.BackupCombo.Items.Count -gt 0)
+    $ui.ClearBackupsButton.IsEnabled = ($ui.BackupCombo.Items.Count -gt 0)
 }
 
 function Update-Options {
@@ -1277,7 +1282,6 @@ function Update-Options {
         $ui.OutOfDateOption.IsChecked = [bool]$script:Context.Options['AllowOutOfDate']
         $ui.ProfileKeysOption.IsChecked = [bool]$script:Context.Options['PointProfilesAtPtr']
         $ui.LibraryPatchOption.IsChecked = [bool]$script:Context.Options['PatchPtrLibraries']
-        $ui.MacroNameOption.IsChecked = [bool]$script:Context.Options['NameConflictingMacros']
     }
     finally {
         $script:Suppress = $false
@@ -1652,7 +1656,6 @@ $optionMap = @{
     OutOfDateOption     = 'AllowOutOfDate'
     ProfileKeysOption   = 'PointProfilesAtPtr'
     LibraryPatchOption  = 'PatchPtrLibraries'
-    MacroNameOption     = 'NameConflictingMacros'
 }
 foreach ($controlName in $optionMap.Keys) {
     $ui[$controlName].Tag = $optionMap[$controlName]
@@ -1669,6 +1672,46 @@ foreach ($controlName in $optionMap.Keys) {
 }
 
 $ui.RefreshBackupsButton.Add_Click({ Invoke-Guarded { Update-Backups } })
+
+$ui.ClearBackupsButton.Add_Click({
+        Invoke-Guarded {
+            # Counted before asking, so the confirmation says what it costs
+            # rather than "are you sure".
+            $total = 0
+            $bytes = [long]0
+            foreach ($side in @('Target', 'Source')) {
+                if (-not $script:Context.$side) { continue }
+                foreach ($backup in (Get-PtrSetupBackup -InstallPath $script:Context.$side.Path)) {
+                    $total++
+                    foreach ($file in (Get-ChildItem -LiteralPath $backup.Path -File -Recurse -Force -ErrorAction SilentlyContinue)) {
+                        $bytes += $file.Length
+                    }
+                }
+            }
+            if ($total -eq 0) {
+                Write-Result '[ok]   No backups to delete.'
+                return
+            }
+
+            $answer = [System.Windows.MessageBox]::Show(
+                "Delete all $total backup(s), freeing $(Format-ByteSize -Bytes $bytes)?" +
+                "`n`nThis is not an undo — it throws away the ability to undo those runs. " +
+                "Nothing you have already copied is removed; only the copies kept for Restore.",
+                'WoW PTR UI Setup', 'OKCancel', 'Warning')
+            if ($answer -ne 'OK') { return }
+
+            $removed = 0
+            $freed = [long]0
+            foreach ($side in @('Target', 'Source')) {
+                if (-not $script:Context.$side) { continue }
+                $result = Remove-PtrSetupBackup -InstallPath $script:Context.$side.Path
+                $removed += $result.Removed
+                $freed += $result.Freed
+            }
+            Write-Result "[ok]   Deleted $removed backup(s), freeing $(Format-ByteSize -Bytes $freed)."
+            Update-Backups
+        }
+    })
 
 $ui.RestoreButton.Add_Click({
         Invoke-Guarded {

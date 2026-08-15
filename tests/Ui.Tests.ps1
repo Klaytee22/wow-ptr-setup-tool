@@ -69,7 +69,7 @@ Describe 'The window and its XAML' {
                 'SourceAccountCombo', 'TargetAccountCombo', 'CharacterPanel',
                 'StepsPanel',
                 'OverwriteOption', 'MacrosOption', 'ChatOption', 'OutOfDateOption',
-                'BackupCombo', 'RefreshBackupsButton', 'RestoreButton',
+                'BackupCombo', 'RefreshBackupsButton', 'RestoreButton', 'ClearBackupsButton',
                 'ResultsBox', 'SummaryText', 'ProgressBar', 'PreviewButton', 'ApplyButton')) {
             Assert-True ($defined -contains $required) "The XAML is missing $required."
         }
@@ -276,7 +276,7 @@ Describe 'The window and its XAML' {
         $ids = @((Get-PtrSetupStep).Id)
         Assert-True ($ids -contains 'copy_addons')
         Assert-True ($ids -contains 'quit_the_game')
-        Assert-Equal 10 $ids.Count
+        Assert-Equal 11 $ids.Count
         Assert-Equal @($ids | Sort-Object -Unique).Count $ids.Count 'Step ids must be unique.'
     }
 }

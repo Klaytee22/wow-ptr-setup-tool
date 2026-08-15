@@ -536,6 +536,61 @@ function Restore-PtrSetupBackup {
     return [pscustomobject]@{ Restored = $restored; Removed = $removed }
 }
 
+function Remove-PtrSetupBackup {
+    <#
+    .SYNOPSIS
+        Delete backups for an install — one, or all of them.
+
+    .DESCRIPTION
+        They accumulate: one folder per step per Apply, and after a few runs the
+        dropdown is unreadable and the folder is the largest thing in the PTR
+        client. Nothing else ever deletes them, so this is the only way to get
+        rid of them without going to Explorer.
+
+        Deleting a backup throws away the ability to undo that run. That is the
+        caller's decision to put to the user; this just does it.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $InstallPath,
+        [string] $BackupId
+    )
+
+    $root = Get-BackupRoot -InstallPath $InstallPath
+    if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+        return [pscustomobject]@{ Removed = 0; Freed = [long]0 }
+    }
+
+    if ($PSBoundParameters.ContainsKey('BackupId')) {
+        $folders = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -eq $BackupId })
+    }
+    else {
+        $folders = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)
+    }
+
+    $removed = 0
+    $freed = [long]0
+    foreach ($folder in $folders) {
+        # Fenced like everything else: a backup folder that somehow resolved
+        # outside the install is not one this may delete.
+        if (-not (Test-PathWithin -Path $folder.FullName -Parent $InstallPath)) { continue }
+        foreach ($file in (Get-ChildItem -LiteralPath $folder.FullName -File -Recurse -Force -ErrorAction SilentlyContinue)) {
+            $freed += $file.Length
+        }
+        Remove-Item -LiteralPath $folder.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $folder.FullName)) { $removed++ }
+    }
+
+    # Tidy the container away too once it is empty, so the PTR folder does not
+    # keep an empty _ptrsetup_backups sitting in it.
+    if (-not @(Get-ChildItem -LiteralPath $root -Force -ErrorAction SilentlyContinue)) {
+        Remove-Item -LiteralPath $root -Force -ErrorAction SilentlyContinue
+    }
+
+    return [pscustomobject]@{ Removed = $removed; Freed = $freed }
+}
+
 function Format-ByteSize {
     <#
     .SYNOPSIS

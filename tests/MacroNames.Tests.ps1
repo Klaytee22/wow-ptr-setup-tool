@@ -158,39 +158,29 @@ Describe 'Breaking the ties' {
     }
 }
 
-Describe 'Planning the rename into a copy' {
+Describe 'Planning the fix on the live client' {
 
-    It 'replaces the copy of the cache with a conflict-free one' {
-        $source = Join-Path $script:TestDrive 'live'
-        $target = Join-Path $script:TestDrive 'ptr'
-        $null = New-TestFile -Path (Join-Path $source 'macros-cache.txt') -Content (New-MacroCache)
-        $null = New-TestFile -Path (Join-Path $source 'bindings-cache.wtf') -Content "bindings`n"
-
-        $copies = @(New-TreeCopyPlan -Source $source -Destination $target)
-        $renamed = @(New-MacroNamePlan -Action $copies)
-        Assert-Equal 1 $renamed.Count 'Only the macro cache should be rewritten.'
-        Assert-Equal 'macros-cache.txt' (Split-Path -Leaf $renamed[0].Destination)
-        Assert-Equal '' $renamed[0].Source 'It must carry content, not copy the conflicted original.'
+    It 'plans a rewrite of the file where it already sits' {
+        $path = New-TestFile -Path (Join-Path $script:TestDrive 'macros-cache.txt') -Content (New-MacroCache)
+        $plan = @(New-MacroNameFixPlan -Path $path)
+        Assert-Equal 1 $plan.Count
+        Assert-Equal 'overwrite' $plan[0].Kind
+        Assert-Equal $path $plan[0].Destination 'It must rewrite the file in place, not copy it somewhere.'
+        Assert-Equal '' $plan[0].Source 'It must carry content rather than copy the conflicted original.'
     }
 
-    It 'reports a skip once the PTR copy is already unique' {
-        $source = Join-Path $script:TestDrive 'live'
-        $target = Join-Path $script:TestDrive 'ptr'
-        $null = New-TestFile -Path (Join-Path $source 'macros-cache.txt') -Content (New-MacroCache)
-        $null = New-TestFile -Path (Join-Path $target 'macros-cache.txt') -Content (Resolve-MacroNameConflict -Text (New-MacroCache))
-
-        $renamed = @(New-MacroNamePlan -Action (New-TreeCopyPlan -Source $source -Destination $target))
-        Assert-Equal 1 $renamed.Count
-        Assert-Equal 'skip' $renamed[0].Kind
+    It 'plans nothing when the names are already unique' {
+        $path = New-TestFile -Path (Join-Path $script:TestDrive 'macros-cache.txt') -Content (New-MacroCache -Name @('one', 'two'))
+        Assert-Equal 0 @(New-MacroNameFixPlan -Path $path).Count
     }
 
-    It 'never plans anything outside the PTR folder' {
-        $source = Join-Path $script:TestDrive 'live'
-        $target = Join-Path $script:TestDrive 'ptr'
-        $null = New-TestFile -Path (Join-Path $source 'macros-cache.txt') -Content (New-MacroCache)
-        foreach ($action in (New-MacroNamePlan -Action (New-TreeCopyPlan -Source $source -Destination $target))) {
-            Assert-True (Test-PathWithin -Path $action.Destination -Parent $target) `
-                "A rename action targets $($action.Destination), outside the PTR folder."
-        }
+    It 'plans nothing at all for a file that is not there' {
+        Assert-Equal 0 @(New-MacroNameFixPlan -Path (Join-Path $script:TestDrive 'missing.txt')).Count
+    }
+
+    It 'says how much it is changing' {
+        $path = New-TestFile -Path (Join-Path $script:TestDrive 'macros-cache.txt') -Content (New-MacroCache -Name @(' ', ' ', ' ', 'weps'))
+        $plan = @(New-MacroNameFixPlan -Path $path)
+        Assert-True ($plan[0].Note -match '2 macro') "The note should count what changes: $($plan[0].Note)"
     }
 }
