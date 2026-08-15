@@ -168,6 +168,39 @@ in this order:
    `WTF\Config.wtf` — step 8 sets it, and without it everything built for live reads as
    out of date.
 
+### An addon that loads on live and errors on the PTR
+
+If the error names `Libs/AceDB-3.0/AceDB-3.0.lua` and says **"attempt to concatenate
+local 'regionKey' (a nil value)"**, that is a stale copy of the Ace3 libraries, not
+anything this tool did. AceDB builds its scope keys from a five-entry region table:
+
+```lua
+local regionTable = { "US", "KR", "EU", "TW", "CN" }
+local regionKey = regionTable[GetCurrentRegion()]
+```
+
+PTR realms report a region id that is not in it, so `regionKey` is `nil` and the next
+line — a concatenation — throws. The addon's `OnInitialize` dies with it, so its slash
+commands are never registered and it looks as though it is not installed at all.
+
+It is worse than one addon. Ace3 libraries are shared through LibStub, and the
+highest-versioned copy across *all* your addons is the one everything uses — so a single
+addon carrying a stale AceDB breaks every Ace3 addon on the PTR at once, which can look
+like copied settings having gone wrong. The traceback names which addon's copy is in
+play.
+
+Fix it **on the live client and then run this tool**, not on the PTR: patch the PTR copy
+and the next Apply overwrites it with the live one. In
+`Interface\AddOns\<Addon>\Libs\AceDB-3.0\AceDB-3.0.lua`, give the key a fallback:
+
+```lua
+local regionKey = regionTable[GetCurrentRegion()] or "US"
+```
+
+That value only namespaces `factionrealmregion`-scoped data, so it is harmless on live.
+Dropping a current Ace3 `Libs\AceDB-3.0` into any one addon works too, and fixes
+everything using Ace3 in one go.
+
 Errors from the addon while *saving* on live are a different matter and usually harmless:
 macros are the part these addons handle least well, since a macro that does not exist on
 the destination cannot be placed. Bars restore; a few macro slots may not.
