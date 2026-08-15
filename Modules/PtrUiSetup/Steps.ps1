@@ -42,10 +42,14 @@ function New-PtrSetupContext {
         [hashtable] $Options
     )
 
+    # Overwrite and IncludeChatCache are not in here any more, so they are not
+    # checkboxes. Both still work if a script sets them — Get-ContextOption
+    # falls back to the sensible default when a key is absent — but neither
+    # earned a place in the window: unticking Overwrite turned most of the tool
+    # into a no-op and read as a fault, and nobody sets a PTR up for their chat
+    # window.
     $defaults = @{
-        Overwrite             = $true
         IncludeMacrosBindings = $true
-        IncludeChatCache      = $false
         # The guide clears the PTR addon folder before pasting. Everything removed
         # is backed up, so this stays reversible.
         ReplaceAddOns         = $true

@@ -13,7 +13,7 @@ see the step is done.
 ┌─ 1 Game folder ────── where WoW is, then live client  →  PTR client
 ├─ 2 Account & chars ── account folder pair + per-character mapping
 ├─ 3 Steps ─────────── 6 automated · 5 hand-held, each previewable
-└─ 4 Options & safety ─ what to include, and a one-click undo of any step
+└─ 4 Options & safety ─ four switches, and a one-click undo of any step
 ```
 
 ## Running it

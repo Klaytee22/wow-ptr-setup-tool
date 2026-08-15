@@ -224,10 +224,8 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource SectionTitle}" Text="4 · Options &amp; safety" />
                         <StackPanel Margin="0,8,0,0">
-                            <CheckBox x:Name="OverwriteOption" Content="Overwrite existing PTR files" Margin="0,4" />
                             <CheckBox x:Name="ReplaceAddOnsOption" Content="Replace the PTR addon folder (remove addons not in your live client)" Margin="0,4" />
                             <CheckBox x:Name="MacrosOption" Content="Include macros and keybinds" Margin="0,4" />
-                            <CheckBox x:Name="ChatOption" Content="Include chat settings (chat-cache.txt)" Margin="0,4" />
                             <CheckBox x:Name="ProfileKeysOption" Content="Point addon profiles at your PTR character (Bartender, ElvUI, Details…)" Margin="0,4" />
                             <CheckBox x:Name="LibraryPatchOption" Content="Fix the PTR copy of Ace3 so addons using it can start (never changes your live client)" Margin="0,4" />
                         </StackPanel>

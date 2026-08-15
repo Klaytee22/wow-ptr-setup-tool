@@ -232,7 +232,6 @@ $script:Invalidates = @{
     character             = @('copy_account_saved_variables', 'copy_character_data', 'name_live_macros')
     ReplaceAddOns         = @('copy_addons')
     IncludeMacrosBindings = @('copy_account_saved_variables', 'copy_character_data')
-    IncludeChatCache      = @('copy_character_data')
     PointProfilesAtPtr    = @('copy_account_saved_variables', 'copy_character_data')
     PatchPtrLibraries     = @('copy_addons')
 }
@@ -1290,10 +1289,8 @@ function Update-Backups {
 function Update-Options {
     $script:Suppress = $true
     try {
-        $ui.OverwriteOption.IsChecked = [bool]$script:Context.Options['Overwrite']
         $ui.ReplaceAddOnsOption.IsChecked = [bool]$script:Context.Options['ReplaceAddOns']
         $ui.MacrosOption.IsChecked = [bool]$script:Context.Options['IncludeMacrosBindings']
-        $ui.ChatOption.IsChecked = [bool]$script:Context.Options['IncludeChatCache']
         $ui.ProfileKeysOption.IsChecked = [bool]$script:Context.Options['PointProfilesAtPtr']
         $ui.LibraryPatchOption.IsChecked = [bool]$script:Context.Options['PatchPtrLibraries']
     }
@@ -1653,10 +1650,8 @@ $ui.TargetAccountCombo.Add_SelectionChanged({
     })
 
 $optionMap = @{
-    OverwriteOption     = 'Overwrite'
     ReplaceAddOnsOption = 'ReplaceAddOns'
     MacrosOption        = 'IncludeMacrosBindings'
-    ChatOption          = 'IncludeChatCache'
     ProfileKeysOption   = 'PointProfilesAtPtr'
     LibraryPatchOption  = 'PatchPtrLibraries'
 }

@@ -114,7 +114,9 @@ Describe 'copy_character_data' {
         Assert-True ($status.Detail -match 'character')
     }
 
-    It 'includes the chat cache only when asked' {
+    It 'includes the chat cache only when a script asks for it' {
+        # No longer a checkbox, but the module still honours it — the window is
+        # what was decluttered, not the capability.
         $context = New-FakeContext -Root (New-FakeWowRoot -Parent $script:TestDrive)
         $sourceDir = Get-WowCharacterPath -Install $context.Source -Character $context.Character[0].Source
         $null = New-TestFile -Path (Join-Path $sourceDir 'chat-cache.txt') -Content 'chat'

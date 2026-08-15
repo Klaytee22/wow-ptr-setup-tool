@@ -68,7 +68,7 @@ Describe 'The window and its XAML' {
                 'SourceInstallCombo', 'TargetInstallCombo', 'RescanButton', 'InstallWarning',
                 'SourceAccountCombo', 'TargetAccountCombo', 'CharacterPanel',
                 'StepsPanel',
-                'OverwriteOption', 'MacrosOption', 'ChatOption',
+                'MacrosOption', 'ProfileKeysOption', 'LibraryPatchOption',
                 'BackupCombo', 'RefreshBackupsButton', 'RestoreButton', 'ClearBackupsButton',
                 'ResultsBox', 'SummaryText', 'ProgressBar', 'ApplyButton')) {
             Assert-True ($defined -contains $required) "The XAML is missing $required."
@@ -199,6 +199,18 @@ Describe 'The window and its XAML' {
         Assert-True ($body -match '\$stack\.Margin = \$gutter') 'The row content should take the same gutter.'
         Assert-Equal 1 ([regex]::Matches($body, '\$gutter = New-Object').Count) `
             'The gutter should be worked out once, not once per column.'
+    }
+
+    It 'keeps section 4 to options that visibly do something' {
+        # Every checkbox here changes what a run writes. Two did not: unticking
+        # Overwrite turned most of the tool into a no-op and read as a fault,
+        # and the chat cache is one file nobody sets a PTR up for. A window full
+        # of switches that appear to do nothing is worse than a smaller one.
+        $defined = @(Get-XamlName -Path $xamlPath | Where-Object { $_ -like '*Option' })
+        Assert-Equal 4 $defined.Count ("Section 4 has grown to $($defined.Count) checkboxes: " + ($defined -join ', '))
+        foreach ($gone in @('OverwriteOption', 'ChatOption', 'OutOfDateOption', 'MacroNameOption')) {
+            Assert-True ($defined -notcontains $gone) "$gone came back — it was removed for saying nothing new."
+        }
     }
 
     It 'connects every option checkbox to an option that exists' {
