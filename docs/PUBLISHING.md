@@ -6,7 +6,8 @@ The repository is at <https://github.com/Klaytee22/wow-ptr-setup-tool> and CI ru
 ## Cut a release
 
 One stable link instead of a branch name, and a version number when somebody reports
-something. [Draft a new release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/new),
+something. Until the first one exists, `/releases/latest` is an empty page — so cut it
+before handing the link to anybody. [Draft a new release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/new),
 type the tag (`v1.1.0`, matching `ModuleVersion` in the manifest), choose *Create new tag
 on publish*, publish. GitHub attaches *Source code (zip)* itself — nothing to build.
 
@@ -21,6 +22,7 @@ UI layout onto the PTR client, so you are not rebuilding your interface every pa
 
 Download: https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest
   → under Assets, "Source code (zip)"
+  (or the green Code button on the repo → Download ZIP)
 
 1. Extract the zip to Documents or Desktop. Do not run it from inside the zip.
 2. Double-click Start-PtrUiSetup.cmd.

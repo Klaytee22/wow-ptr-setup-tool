@@ -10,7 +10,7 @@ your folders and ticking each step off as it sees it done.
 ## Running it
 
 **Download** [the latest release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest)
-→ *Source code (zip)*.
+→ *Source code (zip)*, or the green **Code** button → *Download ZIP*.
 
 **Extract it first** — Documents or Desktop is fine, `Program Files` is not, and running
 it from inside the zip preview will not work. Then **double-click
