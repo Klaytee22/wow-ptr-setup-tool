@@ -452,11 +452,19 @@ function Get-PtrSetupProfileMapping {
         The live-key → PTR-key pairs implied by a context's character mapping.
 
     .DESCRIPTION
-        AceDB keys a character as "Name - Realm", and the realm is the folder
-        name WoW writes under WTF\Account\<ACCOUNT>\, so both halves are already
-        known without opening anything. A pair whose two sides are identical —
-        a PTR realm that happens to be named the same — is left out, because
-        the key the addon looks up is then already there.
+        AceDB keys a character as "Name - Realm", built in game from
+        UnitName and GetRealmName. What this has to hand is the folder name WoW
+        writes under WTF\Account\<ACCOUNT>\, and the two are usually the same
+        string — but only usually, which is not good enough: a key that does not
+        match is a key nothing ever reads, and the addon quietly starts on its
+        default with the right profile sitting unused beside it.
+
+        So the constructed key is a fallback. ToName is carried alongside it so
+        the planner can look for what the game itself wrote in the PTR's own copy
+        of the file and prefer that, which needs no assumption at all.
+
+        A pair whose two sides are identical is left out — the key the addon
+        looks up is then already there.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [psobject] $Context)
@@ -467,9 +475,82 @@ function Get-PtrSetupProfileMapping {
         $from = '{0} - {1}' -f $pair.Source.Name, $pair.Source.Realm
         $to = '{0} - {1}' -f $pair.Target.Name, $pair.Target.Realm
         if ([string]::Equals($from, $to, [System.StringComparison]::Ordinal)) { continue }
-        $mapping.Add([pscustomobject]@{ From = $from; To = $to })
+        $mapping.Add([pscustomobject]@{ From = $from; To = $to; ToName = $pair.Target.Name })
     }
     return @($mapping)
+}
+
+function Get-LuaProfileKeyForCharacter {
+    <#
+    .SYNOPSIS
+        The keys in a file that the game itself wrote for this character.
+
+    .DESCRIPTION
+        AceDB writes profileKeys["Name - Realm"] the first time a character logs
+        in, so the PTR's own copy of the file is a statement of fact about how
+        that character is keyed on that realm — no guessing at what GetRealmName
+        returns, and no assumption that it matches the folder name.
+
+        Everything before the first " - " is the character name. Realm names
+        contain spaces and hyphens of their own, so the split has to be on the
+        first separator and nowhere else.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Text,
+        [Parameter(Mandatory)] [string] $Name
+    )
+
+    $found = [System.Collections.Generic.List[string]]::new()
+    if ($Text.IndexOf('profileKeys', [System.StringComparison]::Ordinal) -lt 0) { return @($found) }
+
+    $prefix = "$Name - "
+    $from = 0
+    while ($true) {
+        $table = Find-LuaTable -Text $Text -Name 'profileKeys' -StartIndex $from
+        if (-not $table) { break }
+        $body = $Text.Substring($table.Open + 1, $table.Close - $table.Open - 1)
+        foreach ($entry in (Get-LuaProfileKey -Body $body)) {
+            if ($entry.Key.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase) -and
+                -not $found.Contains($entry.Key)) {
+                $found.Add($entry.Key)
+            }
+        }
+        $from = $table.Close + 1
+    }
+    return @($found)
+}
+
+function Resolve-ProfileKeyMapping {
+    <#
+    .SYNOPSIS
+        A mapping with the PTR key replaced by what the game actually wrote,
+        where the destination file says.
+
+    .DESCRIPTION
+        Both keys are kept when they differ. An extra entry in profileKeys is
+        inert — AceDB reads only the one matching the character logging in — so
+        writing both costs nothing and means the profile is found whichever of
+        the two naming schemes turns out to be right. Getting this wrong is not
+        a visible error; it is bars in the wrong places and no clue why.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowNull()] [AllowEmptyCollection()] [psobject[]] $Mapping,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $DestinationText
+    )
+
+    $resolved = [System.Collections.Generic.List[psobject]]::new()
+    foreach ($pair in @($Mapping)) {
+        $resolved.Add($pair)
+        if (-not $pair.PSObject.Properties.Name.Contains('ToName') -or -not $pair.ToName) { continue }
+
+        foreach ($actual in (Get-LuaProfileKeyForCharacter -Text $DestinationText -Name $pair.ToName)) {
+            if ([string]::Equals($actual, $pair.To, [System.StringComparison]::Ordinal)) { continue }
+            $resolved.Add([pscustomobject]@{ From = $pair.From; To = $actual; ToName = $pair.ToName })
+        }
+    }
+    return @($resolved)
 }
 
 function New-ProfileKeyPlan {
@@ -506,7 +587,12 @@ function New-ProfileKeyPlan {
         # does this: the option is the user saying the PTR's own file wins.
         if ($exists -and -not $Overwrite) { continue }
 
-        $updated = Update-LuaProfileKey -Text (Read-TextFileUtf8 -Path $file.FullName) -Mapping $Mapping
+        # The destination is read first when it is there, so the keys the game
+        # wrote for these characters can be used in place of guessed ones.
+        if ($exists) { $destinationText = Read-TextFileUtf8 -Path $target } else { $destinationText = '' }
+        $resolved = @(Resolve-ProfileKeyMapping -Mapping $Mapping -DestinationText $destinationText)
+
+        $updated = Update-LuaProfileKey -Text (Read-TextFileUtf8 -Path $file.FullName) -Mapping $resolved
         if ($null -eq $updated) { continue }
 
         $size = [System.Text.Encoding]::UTF8.GetByteCount($updated)
@@ -518,7 +604,7 @@ function New-ProfileKeyPlan {
             # not read at all.
             $existing = Get-Item -LiteralPath $target
             if ($existing.Length -eq $size -and
-                [string]::Equals((Read-TextFileUtf8 -Path $target), $updated, [System.StringComparison]::Ordinal)) {
+                [string]::Equals($destinationText, $updated, [System.StringComparison]::Ordinal)) {
                 $actions.Add((New-FileAction -Kind 'skip' -Destination $target -Size $size -Note 'profile already points at the PTR character'))
                 continue
             }

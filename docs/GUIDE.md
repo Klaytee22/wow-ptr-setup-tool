@@ -134,6 +134,16 @@ Character's profile"* is working around. Adding one line per mapped character cl
 it, so bars, unit frames and layouts come up right on the first login rather than
 after a round of profile-picking.
 
+The key itself is the delicate part. In game AceDB builds it from `UnitName` and
+`GetRealmName`; all this tool has is the realm's folder name under `WTF\Account\`.
+Those are usually the same string, and when they are not, a key written from the
+folder name is a key nothing ever reads — the addon starts on its default with the
+right profile sitting unused beside it, and there is no error anywhere. So the
+folder-name key is only a fallback: the PTR's own copy of the file is read first,
+because the game wrote a key for that character there the first time it logged in,
+and that one needs no assumption. Where the two differ, both are written — a
+profileKeys entry that matches nobody is inert.
+
 Only files that already hold a key for the live character are touched, only that
 table is edited, and the added key is written the way WoW writes them (decimal
 escapes for anything outside printable ASCII), so a name like `Ölrún` matches and

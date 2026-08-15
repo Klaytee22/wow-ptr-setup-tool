@@ -252,6 +252,106 @@ Describe 'Planning the rewrite' {
     }
 }
 
+Describe 'Using the key the game actually wrote' {
+    <#
+        The bug this exists for. The PTR key was built as "<name> - <realm>" from
+        the realm's *folder* name, while the addon looks it up with what
+        GetRealmName returns in game. Those are usually the same string. When
+        they are not, the key written is a key nothing reads: the addon starts on
+        its default, the right profile sits unused in the same file, and the only
+        symptom is a UI that looks wrong with no error anywhere.
+
+        The PTR's own copy of the file already answers the question — the game
+        wrote a key for that character the first time it logged in — so it is
+        read rather than guessed at.
+    #>
+
+    It 'finds the keys a file holds for one character' {
+        $text = New-AceDbFile -ProfileKey @{
+            'Klay - Whitemane'      = 'Main'
+            'Klay - PTR Realm One'  = 'Default'
+            'Klayton - Whitemane'   = 'Other'
+        }
+        $found = @(Get-LuaProfileKeyForCharacter -Text $text -Name 'Klay')
+        Assert-Equal @('Klay - PTR Realm One', 'Klay - Whitemane') @($found | Sort-Object)
+    }
+
+    It 'splits on the first separator, not one inside the realm name' {
+        $text = New-AceDbFile -ProfileKey @{ 'Klay - Ravencrest - PvP' = 'Main' }
+        Assert-Equal @('Klay - Ravencrest - PvP') @(Get-LuaProfileKeyForCharacter -Text $text -Name 'Klay')
+    }
+
+    It 'does not mistake a different character with the same start' {
+        $text = New-AceDbFile -ProfileKey @{ 'Klayton - Whitemane' = 'Main' }
+        Assert-Equal 0 @(Get-LuaProfileKeyForCharacter -Text $text -Name 'Klay').Count
+    }
+
+    It 'prefers what the PTR file says over the folder-name guess' {
+        # The realm folder is "Classic PTR Realm 1"; in game it answers to
+        # something else, and the game's own key is the one that gets read.
+        $mapping = @([pscustomobject]@{
+                From   = 'Klay - Whitemane'
+                To     = 'Klay - Classic PTR Realm 1'
+                ToName = 'Klay'
+            })
+        $destination = New-AceDbFile -ProfileKey @{ 'Klay - PTRRealm1' = 'Default' }
+
+        $resolved = @(Resolve-ProfileKeyMapping -Mapping $mapping -DestinationText $destination)
+        Assert-Equal @('Klay - Classic PTR Realm 1', 'Klay - PTRRealm1') @($resolved.To | Sort-Object)
+        Assert-Equal @('Klay - Whitemane', 'Klay - Whitemane') @($resolved.From)
+    }
+
+    It 'writes both keys, so whichever the addon looks up is there' {
+        $live = New-AceDbFile -ProfileKey @{ 'Klay - Whitemane' = 'Main' }
+        $mapping = @([pscustomobject]@{
+                From   = 'Klay - Whitemane'
+                To     = 'Klay - Classic PTR Realm 1'
+                ToName = 'Klay'
+            })
+        $resolved = @(Resolve-ProfileKeyMapping -Mapping $mapping `
+                -DestinationText (New-AceDbFile -ProfileKey @{ 'Klay - PTRRealm1' = 'Default' }))
+
+        $updated = Update-LuaProfileKey -Text $live -Mapping $resolved
+        Assert-True ($updated.IndexOf('["Klay - PTRRealm1"] = "Main"') -ge 0) `
+            "The key the game wrote is not pointed at the live profile:`n$updated"
+        Assert-True ($updated.IndexOf('["Klay - Classic PTR Realm 1"] = "Main"') -ge 0) `
+            'The folder-name key should still be written as a fallback.'
+    }
+
+    It 'adds nothing extra when the two agree' {
+        $mapping = @([pscustomobject]@{
+                From   = 'Klay - Whitemane'
+                To     = 'Klay - PTRRealm1'
+                ToName = 'Klay'
+            })
+        $resolved = @(Resolve-ProfileKeyMapping -Mapping $mapping `
+                -DestinationText (New-AceDbFile -ProfileKey @{ 'Klay - PTRRealm1' = 'Default' }))
+        Assert-Equal 1 $resolved.Count
+    }
+
+    It 'falls back to the guess when the PTR has no file yet' {
+        $mapping = @([pscustomobject]@{ From = 'Klay - Whitemane'; To = 'Klay - PTR'; ToName = 'Klay' })
+        $resolved = @(Resolve-ProfileKeyMapping -Mapping $mapping -DestinationText '')
+        Assert-Equal 1 $resolved.Count
+        Assert-Equal 'Klay - PTR' $resolved[0].To
+    }
+
+    It 'plans the discovered key end to end' {
+        $source = Join-Path $script:TestDrive 'live'
+        $target = Join-Path $script:TestDrive 'ptr'
+        $null = New-TestFile -Path (Join-Path $source 'Bartender4.lua') `
+            -Content (New-AceDbFile -ProfileKey @{ 'Klay - Whitemane' = 'Main' })
+        $null = New-TestFile -Path (Join-Path $target 'Bartender4.lua') `
+            -Content (New-AceDbFile -ProfileKey @{ 'Klay - PTRRealm1' = 'Default' })
+
+        $mapping = @([pscustomobject]@{ From = 'Klay - Whitemane'; To = 'Klay - Classic PTR Realm 1'; ToName = 'Klay' })
+        $plan = @(New-ProfileKeyPlan -Source $source -Destination $target -Mapping $mapping)
+        Assert-Equal 1 $plan.Count
+        Assert-True ($plan[0].Content.IndexOf('["Klay - PTRRealm1"] = "Main"') -ge 0) `
+            "The planned file does not point the game's own key at the live profile:`n$($plan[0].Content)"
+    }
+}
+
 Describe 'Merging the rewrite into the copy plan' {
 
     It 'replaces the copy of the same file and keeps the order' {

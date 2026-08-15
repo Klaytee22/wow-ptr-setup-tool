@@ -75,6 +75,8 @@ Export-ModuleMember -Function @(
     'Test-LuaProfileFile'
     'Clear-LuaProbeCache'
     'Get-PtrSetupProfileMapping'
+    'Get-LuaProfileKeyForCharacter'
+    'Resolve-ProfileKeyMapping'
     'New-ProfileKeyPlan'
     'Merge-FileActionPlan'
     # Steps

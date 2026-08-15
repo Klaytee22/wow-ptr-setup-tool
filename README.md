@@ -108,8 +108,10 @@ counterpart used is the one that loads. This is what the source guide means by *
 in and go to each addon and copy the profile from your Live Character's profile"*;
 [`docs/GUIDE.md`](docs/GUIDE.md) has the detail.
 
-If an addon still comes up on defaults, it keeps its settings under a scheme this
-cannot read. Pick the profile once in its options and it sticks.
+If an addon still comes up on defaults, pick the profile once in its own options — in
+Bartender that is **Profiles → Copy From → your live character** — and it sticks. That
+means the profile came across and only the selection missed, which is worth reporting:
+it is a bug in this tool, not something you should have to do.
 
 ### Getting the bar slots across anyway
 
