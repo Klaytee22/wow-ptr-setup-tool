@@ -168,6 +168,16 @@ copy that is already guarded is left alone. It is the **Fix the PTR copy of Ace3
 option, on by default because the failure it prevents is silent everywhere except an
 in-game Lua traceback.
 
+**8. It can break ties between macros that share a name.** Also nothing to do with the
+guide. Classic prints a macro's name on its action button, so wanting clean bars leads
+to naming every macro the same single space — and then anything identifying a macro by
+name has nothing to work with. An action bar saver is the obvious casualty.
+
+The duplicates get a suffix of spaces and no-break spaces: unique to anything reading
+them, identical on a bar. The first of each name is left alone. It is the only thing in
+the tool that writes to the **live** client, because that is where an action bar profile
+records the names, so it is never ticked for you and it says so on the card.
+
 **5. Deleting the PTR addon folder is reversible here.** The guide says delete; this
 copies everything it removes into a backup first, so Restore puts it back — including
 addons that only ever existed on the PTR.

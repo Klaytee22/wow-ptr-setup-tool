@@ -12,7 +12,7 @@ see the step is done.
 ```
 ┌─ 1 Game folder ────── where WoW is, then live client  →  PTR client
 ├─ 2 Account & chars ── account folder pair + per-character mapping
-├─ 3 Steps ─────────── 5 automated · 4 hand-held, each previewable
+├─ 3 Steps ─────────── 6 automated · 5 hand-held, each previewable
 └─ 4 Options & safety ─ what to include, and a one-click undo of any step
 ```
 
@@ -75,7 +75,7 @@ console on macOS or Linux (see *Scripting it* below).
 | 11 | Launch the PTR and check the UI | manual | Closing check — enable anything unticked, `/abs restore`, and a pointer back to Restore if something looks wrong |
 
 Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
-along with the seven places this tool deliberately does something different (and why).
+along with the eight places this tool deliberately does something different (and why).
 
 Every automated step is **previewable** — press *Preview changes* for the exact file
 list with nothing written — and **individually tickable**, so you can copy addons
@@ -457,28 +457,28 @@ $env:PTRSETUP_EXTRA_ROOTS = 'C:\temp\fake\World of Warcraft'
 
 ## Status
 
-v1.0 — 243 passing tests, including an end-to-end pass over a realistic mock install,
-and run through on a real Windows install: an Anniversary live client onto its PTR,
-addons and settings across, `Config.wtf` merged with the PTR realm intact, and Restore
-put back.
+v1.1 — 318 passing tests, gated by `tools/Invoke-Gate.ps1`, which is also what CI runs.
 
-What that pass found and fixed, in case any of it resurfaces: a crash on any step with
-exactly one file to copy, an empty step list, Apply freezing the window while it backed
-files up, byte totals counting deleted files as copied, and a "these are different
-versions" warning that fired on a perfectly normal pairing. Each has a regression test.
+**Verified on a real Windows install** (Anniversary live → its PTR): detection, the
+client and account dropdowns, the step list, Preview, Apply, `Config.wtf` merged with the
+PTR realm intact, Restore, and addons plus their settings arriving in a working state.
 
-The suite is the gate — `tools/Invoke-Gate.ps1`, also what CI runs. Most of the window
-still cannot be executed anywhere the tests run, since WPF is Windows-only, so
-`tests/Ui.Tests.ps1` closes what it can without it: it parses both files, cross-checks
-every control the script uses against the XAML, holds the option checkboxes against the
-options they set, and asserts the properties whose absence only shows on screen. It also
-lifts functions out of the script by AST and runs them against stubs, so the folder box,
-the planning queue and the Apply worker are covered without a window.
+**Built but not yet confirmed in game.** These were written against a real file or a real
+error message and are covered by tests, but nobody has watched the client accept them:
 
-Still only settleable by a human at a screen: rendering, layout, contrast, and how it
-behaves on an install much larger than the ones it has seen. Preview before you Apply —
-it writes nothing and prints the exact file list — and every step that writes is backed
-up first.
+- the invisible macro-name suffixes surviving a logout — the client keeps the single
+  space these macros already carry, which is what the scheme is built on, but the longer
+  ones have not been round-tripped
+- the profile key read out of the PTR's own file rather than guessed at
+- the AceDB region fallback
+- the crash log at `%TEMP%\ptrsetup-error.log`, and the launcher pausing on failure
+
+Each of those is backed up before it writes and undoable from the Restore dropdown. Do
+one Apply, look at the result in game, and come back if something is off.
+
+**Only settleable by a human at a screen:** rendering, layout, contrast, and how any of
+this behaves on an install much larger than the ones it has seen. Preview before you
+Apply — it writes nothing and prints the exact file list.
 
 ## Docs
 

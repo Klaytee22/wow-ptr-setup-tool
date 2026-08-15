@@ -61,19 +61,24 @@ The dropdown on that row should offer *— skip this character —* plus the thr
 characters (Bankalt, Mendicant, Sunderfury). **Check the skip entry is not blank** —
 that was a bug, and it is the one to eyeball.
 
-**3 · Steps** — nine cards. The first three are `MANUAL` and should already read
+**3 · Steps** — eleven cards. Two of them are new and worth looking at: *Break ties
+between macros on your LIVE client* should be **unticked** and reading `5 macro(s) share
+2 name(s)`, and *Save your action bars on the live client* should say no action bar saver
+is installed. Neither is part of a default run.
+
+The first three are `MANUAL`. They should already read
 *done* (the PTR has a `WTF` folder, one character is mapped, no WoW is running — if
 WoW *is* running, step 3 will say so, which is correct). Then:
 
 | Step | Pill | Expander |
 |---|---|---|
-| Copy your addons | READY | Show the 12 file(s) — 647 B |
+| Copy your addons | READY | Show the 13 file(s) — 913 B |
 | Carry over `Config.wtf` | READY | Show the 1 file(s) — 266 B |
-| Copy account-wide addon settings | READY | Show the 6 file(s) — 792 B |
-| Copy per-character settings | READY | Show the 7 file(s) — 392 B |
+| Copy account-wide addon settings | READY | Show the 6 file(s) — 1.0 KB |
+| Copy per-character settings | READY | Show the 7 file(s) — 504 B |
 | Allow out-of-date addons | READY | Show the 1 file(s) — 170 B |
 
-**Footer** — `5 step(s) selected · 27 file(s) · 2.2 KB`, with *Preview changes* and
+**Footer** — `5 step(s) selected · 28 file(s) · 2.8 KB`, with *Preview changes* and
 *Apply selected steps* both enabled.
 
 Open one of those expanders. The file list should be **multi-line**, one action per
