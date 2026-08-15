@@ -870,10 +870,12 @@ function Update-CharacterPanel {
     $null = $header.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
     $null = $header.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
     # Live on the left, PTR on the right, matching the account dropdowns above.
-    # They used to be the other way round here, which meant the two halves of
-    # section 2 read in opposite directions.
-    $left = New-TextBlockControl -Text 'GETS SETTINGS FROM' -Colour '#98A0B3' -Size 11
-    $right = New-TextBlockControl -Text 'PTR CHARACTER' -Colour '#98A0B3' -Size 11
+    # They used to be the other way round, which had section 2 reading in two
+    # directions at once; the labels then had to change with them, because
+    # "gets settings from" over the first column describes the wrong end of the
+    # arrow. Left to right is now the direction the copy actually goes.
+    $left = New-TextBlockControl -Text 'LIVE CHARACTER' -Colour '#98A0B3' -Size 11
+    $right = New-TextBlockControl -Text 'COPIES ONTO' -Colour '#98A0B3' -Size 11
     [System.Windows.Controls.Grid]::SetColumn($right, 1)
     $null = $header.Children.Add($left)
     $null = $header.Children.Add($right)

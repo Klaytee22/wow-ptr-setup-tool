@@ -160,6 +160,38 @@ Describe 'The window and its XAML' {
             "the whole redraw down with it:`n  " + ($offences -join "`n  "))
     }
 
+    It 'lays the character mapping out in the direction the copy goes' {
+        # Live on the left, PTR on the right, matching the account dropdowns in
+        # the same section. Getting these the wrong way round is invisible to
+        # every other test and obvious to anyone looking at the window.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $function = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Update-CharacterPanel'
+                }, $true))
+        Assert-Equal 1 $function.Count 'Expected one Update-CharacterPanel in the window script.'
+        $body = $function[0].Extent.Text
+
+        Assert-True ($body -match "\`$left = New-TextBlockControl -Text 'LIVE CHARACTER'") `
+            'The left column should be the live character.'
+        Assert-True ($body -match "\`$right = New-TextBlockControl -Text 'COPIES ONTO'") `
+            'The right column should be where it copies to.'
+        # Matched against the assignment, not the bare words: -match is
+        # case-insensitive, so the comment above the labels explaining why they
+        # changed was enough to fail this.
+        Assert-True ($body -notmatch "New-TextBlockControl -Text 'GETS SETTINGS FROM'") `
+            'The old label describes the wrong end of the arrow now the columns have swapped.'
+
+        # The PTR name block goes in column 1; the live combo takes column 0 by
+        # not being moved at all, which is exactly the kind of thing that gets
+        # undone by accident.
+        Assert-True ($body -match '::SetColumn\(\$stack, 1\)') `
+            'The PTR character block should sit in the right-hand column.'
+        Assert-True ($body -notmatch '::SetColumn\(\$combo') `
+            'The live combo should be left in column 0, not moved to the right.'
+    }
+
     It 'connects every option checkbox to an option that exists' {
         # Three files have to agree for a checkbox to do anything: the XAML names
         # it, $optionMap says which option it sets, and the context has to have
