@@ -12,13 +12,9 @@ your folders and ticking each step off as it sees it done.
 **Download** [the latest release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest)
 → *Source code (zip)*.
 
-> **Right-click the zip → Properties → tick *Unblock* → OK, then extract.** Windows marks
-> anything downloaded, and an extracted `.cmd` still carrying that mark shows *"Windows
-> protected your PC"* instead of running. Unblocking the zip clears every file inside at
-> once. Already extracted and stuck on that box? *More info → Run anyway.*
-
-Extract somewhere ordinary — Documents or Desktop, not `Program Files` — and
-**double-click `Start-PtrUiSetup.cmd`**.
+**Extract it first** — Documents or Desktop is fine, `Program Files` is not, and running
+it from inside the zip preview will not work. Then **double-click
+`Start-PtrUiSetup.cmd`**.
 
 Nothing to install: it uses the PowerShell that ships with Windows. Keep the folder as it
 comes; the launcher looks for the other files beside it. **Windows only.**
