@@ -117,6 +117,10 @@ exists is copied, so the tool is right either way and a future rename cannot bre
 "go to WTF -> Account. Open Config.wtf" for client settings; the file is one level up,
 at `WTF\Config.wtf`. The tool uses the real location.
 
+**5. Deleting the PTR addon folder is reversible here.** The guide says delete; this
+copies everything it removes into a backup first, so Restore puts it back — including
+addons that only ever existed on the PTR.
+
 **6. It points each addon's profile at the PTR character.** This is the other half of
 deviation 1. Copying the account SavedVariables brings the profiles across, but most
 addons pick which one to load out of an `AceDB-3.0` table keyed by character:
@@ -177,10 +181,6 @@ The duplicates get a suffix of spaces and no-break spaces: unique to anything re
 them, identical on a bar. The first of each name is left alone. It is the only thing in
 the tool that writes to the **live** client, because that is where an action bar profile
 records the names, so it is never ticked for you and it says so on the card.
-
-**5. Deleting the PTR addon folder is reversible here.** The guide says delete; this
-copies everything it removes into a backup first, so Restore puts it back — including
-addons that only ever existed on the PTR.
 
 ## A second implementation of the same guide
 

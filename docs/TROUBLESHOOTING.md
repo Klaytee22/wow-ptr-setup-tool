@@ -129,7 +129,7 @@ differently from everything else:
 - **It is never ticked for you.** Every other automated step is on by default; this one
   you have to choose.
 - The Apply confirmation names it and names the folder it will write to.
-- It is previewable like anything else.
+- Its card lists the files it would write, like any other step.
 - It touches nothing but `macros-cache.txt`, and within that nothing but the names.
 - It is the one step that does **not** leave a backup. It writes once and then reports
   itself done, so a backup would be a folder created inside your real game install and

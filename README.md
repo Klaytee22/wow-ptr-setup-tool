@@ -1,278 +1,98 @@
 ﻿# WoW PTR UI Setup
 
-Copy your live World of Warcraft UI — addons, addon profiles, keybinds, macros and
-frame layout — onto the PTR client, without hand-copying folders and hoping you got
-the right one.
+Copy your live World of Warcraft UI — addons, addon settings, keybinds, macros and frame
+layout — onto the PTR client, instead of hand-copying folders and hoping you got the
+right one.
 
-Double-click, get a window. It walks the whole setup top to bottom: anything it can do
-itself, it does; anything only you can do (installing the PTR client, running a
-character copy) it explains, then watches your folders and ticks itself off once it can
-see the step is done.
-
-```
-┌─ 1 Game folder ────── where WoW is, then live client  →  PTR client
-├─ 2 Account & chars ── account folder pair + per-character mapping
-├─ 3 Steps ─────────── 6 automated · 5 hand-held, each previewable
-└─ 4 Options & safety ─ four switches, and a one-click undo of any step
-```
+Double-click, get a window. It does what it can itself and explains the rest, watching
+your folders and ticking each step off as it sees it done.
 
 ## Running it
 
-**Download:** [the latest release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest)
-→ *Source code (zip)*. Or the green **Code** button → *Download ZIP*.
+**Download** [the latest release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest)
+→ *Source code (zip)*.
 
-> **Right-click the downloaded `.zip` → Properties → tick *Unblock* → OK, and only then
-> extract it.** Windows marks everything that comes off the internet, and an extracted
-> `.cmd` carrying that mark gets a *"Windows protected your PC"* box instead of running.
-> Unblocking the zip first clears it for every file inside; doing it afterwards means
-> doing it file by file. If you have already extracted and hit the box, *More info →
-> Run anyway* works too.
+> **Right-click the zip → Properties → tick *Unblock* → OK, then extract.** Windows marks
+> anything downloaded, and an extracted `.cmd` still carrying that mark shows *"Windows
+> protected your PC"* instead of running. Unblocking the zip clears every file inside at
+> once. Already extracted and stuck on that box? *More info → Run anyway.*
 
-Extract it somewhere ordinary — Documents or Desktop, not inside the zip preview and
-not in `Program Files`. Then **double-click one of these**:
+Extract somewhere ordinary — Documents or Desktop, not `Program Files` — and
+**double-click `Start-PtrUiSetup.cmd`**.
 
-| Double-click | What happens |
-|---|---|
-| **`Start-PtrUiSetup.cmd`** | The window. This is the one you want. |
-| `Run-Tests.cmd` | Runs the test suite — needs no game folder, and answers "is it me or the tool?" |
-
-Nothing to install. It runs on the Windows PowerShell that ships with Windows, and the
-launchers pass `-ExecutionPolicy Bypass` for that one process, so no machine-wide
-setting changes. Keep the folder as it comes — `Start-PtrUiSetup.cmd` looks for
-`PtrUiSetup.ps1`, `ui\` and `Modules\` next to itself.
-
-> **Windows will not run a `.ps1` by double-clicking it** — Explorer opens it in
-> Notepad, and so does Command Prompt. That is what the `.cmd` files are for. If you
-> would rather use a terminal, it has to be **PowerShell**, not Command Prompt:
->
-> ```powershell
-> .\PtrUiSetup.ps1                                  # the window
-> .\PtrUiSetup.ps1 -Path 'D:\Games\World of Warcraft'  # skip straight to a folder
-> .\PtrUiSetup.ps1 -ListSteps                       # print the steps, no window
-> ```
-
-You should not need a command line at all. The window has a folder box with **Browse**
-and **Detect** next to it, and remembers the folder you settle on, so the second launch
-opens on it.
-
-**Windows only** — WPF is. The module underneath is cross-platform and works from a
-console on macOS or Linux (see *Scripting it* below).
+Nothing to install: it uses the PowerShell that ships with Windows. Keep the folder as it
+comes; the launcher looks for the other files beside it. **Windows only.**
 
 ## What it does
 
-| # | Step | Mode | What happens |
-|---|------|------|--------------|
-| 1 | Install and launch the PTR client once | manual | Waits until the PTR folder has a `WTF` tree — nothing can be copied before that |
-| 2 | Copy your character to the PTR | manual | Blizzard's character copy; the tool detects the result |
-| 3 | Quit World of Warcraft before copying | manual | Ticks itself off when no WoW process is running — WoW rewrites `WTF` on exit and would undo the copy |
-| 4 | Break ties between macros on your LIVE client | auto, **opt-in** | The only step that writes outside the PTR folder. Never ticked for you. Tells you how many macro names collide, and gives the duplicates an invisible suffix so an action bar saver can tell them apart |
-| 5 | Save your action bars on the live client | manual | Install an action bar saver and `/abs save`, before anything is copied — the bars are server-side and this is the only way to carry them |
-| 6 | Copy your addons | auto | `Interface\AddOns` → PTR, optionally clearing PTR-only addons first, patching a stale Ace3 on the way |
-| 7 | Carry over `Config.wtf` | auto | Merges live settings into the PTR's file, keeping PTR realm/account keys |
-| 8 | Copy account-wide addon settings | auto | `WTF\Account\<ACCOUNT>\SavedVariables`, `bindings-cache.wtf`, macros, `config-cache.wtf`, and each addon's profile pointed at the PTR character |
-| 9 | Copy per-character settings | auto | Per character: `SavedVariables`, `AddOns.txt`, `layout-local.txt`, `config-cache.wtf`, keybinds, macros |
-| 10 | Allow out-of-date addons | auto | Sets `checkAddonVersion "0"` so live-built addons load on a higher interface version |
-| 11 | Launch the PTR and check the UI | manual | Closing check — enable anything unticked, `/abs restore`, and a pointer back to Restore if something looks wrong |
+| # | Step | | |
+|---|------|---|---|
+| 1 | Install and launch the PTR client once | manual | It needs to build its folders before anything can go in them |
+| 2 | Copy your character to the PTR | manual | Blizzard's character copy; the tool spots the result |
+| 3 | Quit World of Warcraft | manual | Ticks itself off when the game closes — WoW rewrites its settings on exit and would undo the copy |
+| 4 | Break ties between macros on your LIVE client | opt-in | The only step that touches your live client, and it is never ticked for you. Needed if an action bar addon is to tell your macros apart |
+| 5 | Save your action bars on the live client | manual | `/abs save` with an action bar addon. Your bars live on Blizzard's servers, so this is the only way to carry them |
+| 6 | Copy your addons | auto | Optionally clearing PTR-only addons first |
+| 7 | Carry over `Config.wtf` | auto | Resolution, graphics, sound — merged, so the PTR keeps pointing at PTR realms |
+| 8 | Copy account-wide addon settings | auto | Every addon's profiles, keybinds and macros, with each addon pointed at your PTR character |
+| 9 | Copy per-character settings | auto | Per character: addon settings, addon list, frame layout, keybinds, macros |
+| 10 | Allow out-of-date addons | auto | So addons built for live still load |
+| 11 | Launch the PTR and check | manual | Enable anything unticked, `/abs restore`, and undo from here if it looks wrong |
 
-Those come straight from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md)
-along with the eight places this tool deliberately does something different (and why).
+Every automated step ticks on and off separately, and each one lists the exact files it
+would write — open *Show the N file(s)* on a card and that is the plan, file by file.
 
-Every automated step is **individually tickable**, so you can copy addons without
-touching settings, or the reverse — and every one of them shows the exact files it would
-write before you press anything. Open the *Show the N file(s)* list on a card and that is
-the plan, file by file.
-
-The copying is plain PowerShell (`Copy-Item`) against your folders. No server, no
-browser, no network access at any point.
+These come from a written guide, transcribed in [`docs/GUIDE.md`](docs/GUIDE.md) along
+with the eight places this tool deliberately does something different.
 
 ## If something looks wrong in game
 
-Four things go wrong often enough to be worth writing down, and none of them are the
-copy itself:
+Four things go wrong often enough to write down, and none of them are the copy itself:
 
 | Symptom | Cause |
 |---|---|
 | Bars in the wrong place, unit frames unstyled | The addon loaded its default profile |
 | Bar slots empty | Blizzard's copy does not reliably bring them; an addon has to save them first |
-| An addon's slash command does not exist on the PTR | It did not load — usually installed after the last copy |
+| An addon's slash command missing on the PTR | It did not load — usually installed after the last copy |
 | `Unable to restore item to slot`, repeatedly | Macros sharing a name, or items you are not carrying |
 
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) has the cause and the fix for each,
-including why the action bars are the one thing this tool cannot copy.
-
-## Finding your install
-
-The window opens with a folder box, so there is nothing to configure and no flag to
-pass:
-
-- **It watches.** Launching the PTR, copying a character, installing an addon or
-  quitting the game are all noticed within a few seconds — *Rescan now* is there for
-  when you want everything re-read from scratch, not for ordinary use. The check is
-  about twenty directory timestamps and one process lookup, a few times a minute.
-- **It remembers.** The folder you settle on is saved to
-  `%LOCALAPPDATA%\PtrUiSetup\settings.json`, so the next launch opens on it.
-- **Otherwise it detects.** Blizzard records the install path in the registry, which is
-  one read and exact. Failing that it checks the handful of folders Battle.net installs
-  to, on local fixed disks only — a disconnected network drive would otherwise stall
-  the check for seconds at a time. Nothing searches your filesystem; that costs minutes
-  to find a folder you already know.
-- **Otherwise it shows the usual location** — `C:\Program Files (x86)\World of Warcraft`
-  — for you to correct.
-
-**Browse** picks a folder, **Detect** re-runs the search, and typing a path and pressing
-Enter works too. Either the folder your install is in or a client folder inside it is
-fine, since people paste whichever one Explorer happens to be showing.
-
-Every client folder in there is offered: `_retail_`, `_classic_`, `_classic_era_`,
-`_anniversary_`, `_ptr_`, `_ptr2_`, the betas, and any Blizzard adds later. A folder the
-tool has never heard of is still recognised by the `.flavor.info` file every client
-carries, so a version shipped after this was written turns up in the dropdowns on its
-own, without waiting on an update here.
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) has the fix for each.
 
 ## Safety
 
-- **Nothing is written until you press Apply and confirm.** Each step card lists the
-  exact files it would write before you press anything.
-- **Every step backs up before it writes**, into `_ptrsetup_backups\` inside the PTR
-  folder, and **Restore is a real undo**: replaced files go back *and* added files are
-  removed, so the client returns to its prior state hash-for-hash. One entry per step,
-  so undoing a whole Apply means restoring each. *Delete all* clears those folders out
-  when they pile up — it removes only the backups, never anything copied.
-- **The live client is read, never written**, with one exception that is off unless you
-  tick it, says so on its own card, and names itself again in the confirmation.
-- **Writes cannot leave the folder they are aimed at.** A planned write landing anywhere
-  else aborts the run.
-- **Running it twice is a no-op.** A file already identical on the PTR is left alone, so
-  a second Apply reports every step finished.
-- **`Config.wtf` is merged, not copied.** `realmList`, `portal`, `accountName` and
-  friends keep the PTR's own values, so the PTR client keeps pointing at PTR realms.
+- **Nothing is written until you press Apply and confirm.**
+- **Every step backs up first**, and Restore is a real undo: replaced files go back *and*
+  added files are removed. One backup per step, so undoing a whole run means restoring
+  each. *Delete all* clears old backups and touches nothing else.
+- **Your live client is read, never written** — except step 4, which is off unless you
+  tick it and says so twice before it runs.
+- **Running it twice is a no-op.** Anything already copied is left alone.
+- **`Config.wtf` is merged, not pasted**, so the PTR keeps its own realm list. Pasting it
+  wholesale is how you end up pointed at live realms.
 
-Quit WoW before applying — it rewrites `WTF` when it exits and will happily undo the
-copy.
+Quit WoW before applying — it rewrites its settings on exit and will undo the copy.
 
-## Layout
+## Where it looks for your game
 
-```
-Start-PtrUiSetup.cmd          double-click: the window
-Run-Tests.cmd                 double-click: the test suite
-PtrUiSetup.ps1                the window: renders state, calls the module
-ui/MainWindow.xaml            the window's layout
-Modules/PtrUiSetup/
-  Detect.ps1                  find installs, accounts, realms, characters
-  FileOps.ps1                 plan → preview → apply, with backup and restore
-  ConfigWtf.ps1               parse/merge/render Config.wtf
-  Steps.ps1                   the guide, expressed as data
-  Session.ps1                 first-guess selection and keeping it consistent
-  Settings.ps1                remembers the folder you picked
-tools/New-MockWowFolder.ps1   builds a fake install to test against
-tests/                        201 tests, no game install and no Pester required
-```
+There is nothing to configure. The window opens on the folder it used last, or the one
+Blizzard recorded in the registry, or the usual `C:\Program Files (x86)\World of Warcraft`
+— and **Browse** fixes it if all three are wrong. Either the `World of Warcraft` folder
+or a client folder inside it will do.
 
-Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
-preview, the backups and the summary pick it up with no other changes.
+Every client folder is offered — `_retail_`, `_classic_`, `_anniversary_`, `_ptr_`,
+`_ptr2_`, the betas — including ones released after this was written, which it recognises
+from a file every client carries.
 
-## Scripting it
-
-The module has no dependency on the window:
-
-```powershell
-Import-Module ./Modules/PtrUiSetup
-$context = Initialize-PtrSetupContext
-Invoke-PtrSetup -Context $context -StepId copy_addons, copy_config_wtf -PreviewOnly
-Invoke-PtrSetup -Context $context -StepId copy_addons
-Get-PtrSetupBackup -InstallPath $context.Target.Path
-```
-
-## Trying it against a fake install
-
-If you would rather not point it at your real game folder first, build a fake one. From
-a **PowerShell** prompt in the repo folder:
-
-```powershell
-.\tools\New-MockWowFolder.ps1 -Launch
-```
-
-That creates `PtrUiSetup-Mock\World of Warcraft` on your desktop with a live client
-(5 addons, 3 characters, full settings) and a PTR client (launched once, one copied
-character on "Classic PTR Realm 1", one stale PTR-only addon), then opens the window
-pointed at it. Every file is stamped `LIVE` or `PTR`, so after applying you can open
-anything on the PTR side and see whether it really came across.
-
-Worth trying there: open a step's file list (nothing is written by looking), Apply
-(5 addons copied, the stale one removed), check `WTF\Config.wtf` still says `logon-ptr`, Restore, Apply again (every
-step reports "already up to date"). Delete the folder when you are done — nothing else
-on your machine is touched.
-
-[`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) is the same walkthrough in full, with the exact
-file counts and byte totals the window should be showing at each stage, so anything
-different is a finding rather than a guess.
-
-A backup is per step, not per Apply: an Apply that ran four steps leaves four backup
-entries, and Restore undoes the one you pick. Rolling a whole run back means restoring
-each of its entries.
-
-## Development
-
-```powershell
-./tools/Invoke-Gate.ps1                        # the one to run before pushing
-./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
-```
-
-The gate parses every file, checks encodings, runs the suite and runs PSScriptAnalyzer
-if it is installed. CI runs the same script on PowerShell 7 (Windows and Linux) and on
-Windows PowerShell 5.1, since the launcher uses 5.1.
-
-The suite is three kinds of test. **Unit** tests cover one function against small
-fixtures. **Integration** tests build the real mock from `tools/New-MockWowFolder.ps1`
-and walk the guide end to end, asserting on what lands on disk — one per instruction,
-plus undo, idempotency and the awkward cases (PTR never launched, renamed account
-folder, no character copied). **Coverage** tests check this tool against
-[WoW-PTR-Config-Copier](https://github.com/Azevedoc/WoW-PTR-Config-Copier), which
-automates the same guide: every file it copies must be one some step here plans to write.
-
-Everything builds fake `World of Warcraft` trees in temp folders, so the suite runs on
-machines that have never seen the game. There is no Pester dependency —
-`tests/TestRunner.ps1` is a ~100-line `Describe`/`It` harness.
-
-`PTRSETUP_EXTRA_ROOTS` adds folders to detection and `PTRSETUP_SETTINGS` moves the
-settings file; the tests use both to stay off the real machine.
-
-## Status
-
-v1.1 — 318 passing tests, gated by `tools/Invoke-Gate.ps1`, which is also what CI runs.
-
-**Verified on a real Windows install** (Anniversary live → its PTR): detection, the
-client and account dropdowns, the step list, Apply, `Config.wtf` merged with the
-PTR realm intact, Restore, and addons plus their settings arriving in a working state.
-
-**Built but not yet confirmed in game.** These were written against a real file or a real
-error message and are covered by tests, but nobody has watched the client accept them:
-
-- the invisible macro-name suffixes surviving a logout — the client keeps the single
-  space these macros already carry, which is what the scheme is built on, but the longer
-  ones have not been round-tripped
-- the profile key read out of the PTR's own file rather than guessed at
-- the AceDB region fallback
-- the crash log at `%TEMP%\ptrsetup-error.log`, and the launcher pausing on failure
-
-Each is backed up before it writes and undoable from the Restore dropdown — bar the live
-macro rename, which says so on its own card. Do one Apply, look at the result in game,
-and come back if something is off.
-
-**Only settleable by a human at a screen:** rendering, layout, contrast, and how any of
-this behaves on an install much larger than the ones it has seen. Read the file list on a
-step card before you Apply — it is the plan, exactly.
+It also watches. Launching the PTR, copying a character, installing an addon or quitting
+the game all register within a few seconds; *Rescan now* is for when you want everything
+re-read from scratch.
 
 ## Docs
 
-- [`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) — try it against a fake install, step by
-  step, with the numbers to expect
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — action bars, macro names, and
-  the two addon failures that look like this tool's fault and are not
-- [`docs/GUIDE.md`](docs/GUIDE.md) — the source guide, the instruction-to-step table,
-  the eight deliberate deviations, and a coverage comparison against the other tool that
-  automates the same guide
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how it fits together and why
+- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) — when the game looks wrong afterwards
+- [`docs/FIRST-RUN.md`](docs/FIRST-RUN.md) — try it against a fake install first
+- [`docs/GUIDE.md`](docs/GUIDE.md) — the guide it automates, and where it deviates
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how it works, and how to work on it
 - [`docs/PUBLISHING.md`](docs/PUBLISHING.md) — cutting a release and handing it out
 
 MIT licensed.

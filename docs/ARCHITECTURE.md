@@ -22,9 +22,10 @@ Three rules keep it maintainable:
    console and tested that way. The GUI is one consumer, which is why the whole suite
    runs on Linux CI where WPF does not exist.
 2. **Plan, then apply.** No step writes during planning. `New-PtrSetupStepPlan` returns
-   `FileAction` objects; the same list is what the preview shows and what
-   `Invoke-FileActionPlan` executes. A preview is not a different code path — it is the
-   real one with `-PreviewOnly`.
+   `FileAction` objects; the same list is what a step card shows and what
+   `Invoke-FileActionPlan` executes. The window has no separate preview because it does
+   not need one — the card is the plan. `-PreviewOnly` remains for scripting, and is the
+   real code path rather than a second one.
 3. **Status is derived, never stored.** `Get-PtrSetupStepStatus` re-reads the
    filesystem on every refresh, so the window cannot drift out of sync with what is
    actually on disk — including changes made outside the tool.
@@ -183,8 +184,9 @@ list that never finished loading.
 
 `Invoke-FileActionPlan` is the only thing that writes, and it:
 
-1. Rejects the whole batch if any destination falls outside the selected PTR install.
-   A mis-selected target fails loudly instead of copying over a live client.
+1. Rejects the whole batch if any destination falls outside the install the step
+   declares it writes to. A mis-selected target fails loudly instead of copying over a
+   live client.
 2. Copies every file it is about to overwrite **or delete** into
    `<install>\_ptrsetup_backups\<timestamp>-<step_id>\`, preserving the relative path,
    and records every path it is about to **create** in the same `manifest.json`.
@@ -193,9 +195,18 @@ list that never finished loading.
    half-copied client behind, which is not what someone watching a step go wrong means
    by "undo". `-KeepAdded` opts out.
 3. Returns without writing anything under `-PreviewOnly`.
+4. Skips step 2 entirely under `-SkipBackup`, which one step asks for — see below.
 
-The live client is only ever read from. No code path writes to the source install, and
-`Steps.Tests.ps1` asserts the live tree is byte-identical after a full run.
+**One step writes to the live client, and only one.** A step declares `WritesTo`, which
+is `Target` for everything but `name_live_macros`; the fence in point 1 is applied to
+whichever install that names, so it is still a fence rather than an exception to one.
+That step also carries `OptIn`, so the window never ticks it, and `NoBackup`, because it
+writes once and then reports itself done — a backup would be a folder created inside the
+real game install and never used again.
+
+`Integration.Tests.ps1` holds all of that: the live tree is byte-identical after a
+default run, `name_live_macros` changes nothing on live but `macros-cache.txt`, and it is
+the only step with either flag set.
 
 ## Config.wtf
 
@@ -299,3 +310,62 @@ case-insensitive, so it is one — and if `$AddOn` is a typed parameter (`[strin
 each assignment is coerced back through that type and the loop variable becomes a
 one-element array. It cost an afternoon here. Loop variables never share a name with a
 parameter in this codebase.
+
+## Layout
+
+```
+Start-PtrUiSetup.cmd          double-click: the window
+Run-Tests.cmd                 double-click: the test suite
+PtrUiSetup.ps1                the window: renders state, calls the module
+ui/MainWindow.xaml            the window's layout
+Modules/PtrUiSetup/
+  Detect.ps1                  find installs, accounts, realms, characters
+  FileOps.ps1                 plan, apply, back up, restore
+  ConfigWtf.ps1               parse/merge/render Config.wtf
+  Steps.ps1                   the guide, expressed as data
+  Session.ps1                 first-guess selection and keeping it consistent
+  Settings.ps1                remembers the folder you picked
+tools/New-MockWowFolder.ps1   builds a fake install to test against
+tests/                        no game install and no Pester required
+```
+
+Adding a step means adding one `New-PtrSetupStep` entry in `Steps.ps1`. The window, the
+file lists, the backups and the summary pick it up with no other changes.
+
+## Scripting it
+
+The module has no dependency on the window:
+
+```powershell
+Import-Module ./Modules/PtrUiSetup
+$context = Initialize-PtrSetupContext
+Invoke-PtrSetup -Context $context -StepId copy_addons, copy_config_wtf -PreviewOnly
+Invoke-PtrSetup -Context $context -StepId copy_addons
+Get-PtrSetupBackup -InstallPath $context.Target.Path
+```
+
+## Development
+
+```powershell
+./tools/Invoke-Gate.ps1                        # the one to run before pushing
+./tests/Invoke-Tests.ps1 -Filter Steps.Tests   # one file
+```
+
+The gate parses every file, checks encodings, runs the suite and runs PSScriptAnalyzer
+if it is installed. CI runs the same script on PowerShell 7 (Windows and Linux) and on
+Windows PowerShell 5.1, since the launcher uses 5.1.
+
+The suite is three kinds of test. **Unit** tests cover one function against small
+fixtures. **Integration** tests build the real mock from `tools/New-MockWowFolder.ps1`
+and walk the guide end to end, asserting on what lands on disk — one per instruction,
+plus undo, idempotency and the awkward cases (PTR never launched, renamed account
+folder, no character copied). **Coverage** tests check this tool against
+[WoW-PTR-Config-Copier](https://github.com/Azevedoc/WoW-PTR-Config-Copier), which
+automates the same guide: every file it copies must be one some step here plans to write.
+
+Everything builds fake `World of Warcraft` trees in temp folders, so the suite runs on
+machines that have never seen the game. There is no Pester dependency —
+`tests/TestRunner.ps1` is a ~100-line `Describe`/`It` harness.
+
+`PTRSETUP_EXTRA_ROOTS` adds folders to detection and `PTRSETUP_SETTINGS` moves the
+settings file; the tests use both to stay off the real machine.
