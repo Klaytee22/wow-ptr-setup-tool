@@ -331,6 +331,10 @@ function Invoke-FileActionPlan {
         [Parameter(Mandatory)] [string] $InstallPath,
         [Parameter(Mandatory)] [string] $Label,
         [switch] $PreviewOnly,
+        # Write without keeping a copy of what was replaced. Only for a change
+        # small and certain enough that the undo is not worth the folder it
+        # leaves behind — and it does mean there is no undo.
+        [switch] $SkipBackup,
         [scriptblock] $OnProgress
     )
 
@@ -347,6 +351,12 @@ function Invoke-FileActionPlan {
         # $null and a one-item list as the bare item.
         if ($PreviewOnly) { $performed = @() } else { $performed = @($todo) }
         return [pscustomobject]@{ Performed = $performed; BackupPath = $null }
+    }
+
+    if ($SkipBackup) {
+        $written = Write-FileAction -Action $todo -OnProgress $OnProgress
+        Remove-EmptyFolder -Path $written -Stop $InstallPath
+        return [pscustomobject]@{ Performed = $todo; BackupPath = $null }
     }
 
     # Back up everything about to be replaced or removed, and note everything
@@ -381,15 +391,37 @@ function Invoke-FileActionPlan {
     Write-TextFileNoBom -Path (Join-Path $backupPath $script:BackupManifestName) `
         -Content ($manifest | ConvertTo-Json -Depth 5)
 
+    $emptied = Write-FileAction -Action $todo -OnProgress $OnProgress
+    Remove-EmptyFolder -Path $emptied -Stop $InstallPath
+
+    return [pscustomobject]@{ Performed = $todo; BackupPath = $backupPath }
+}
+
+function Write-FileAction {
+    <#
+    .SYNOPSIS
+        Perform the actions, returning the folders a delete may have emptied.
+
+    .DESCRIPTION
+        The writing half on its own, so the backed-up path and the skip-backup
+        path cannot drift apart — there is one place that decides what a copy,
+        a generated file and a delete each mean.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [psobject[]] $Action,
+        [scriptblock] $OnProgress
+    )
+
     $index = 0
     $emptied = [System.Collections.Generic.List[string]]::new()
-    foreach ($item in $todo) {
+    foreach ($item in @($Action)) {
         $index++
 
         if ($item.Kind -eq 'delete') {
             Remove-Item -LiteralPath $item.Destination -Force -ErrorAction SilentlyContinue
             $emptied.Add((Split-Path -Path $item.Destination -Parent))
-            if ($OnProgress) { & $OnProgress $index $todo.Count }
+            if ($OnProgress) { & $OnProgress $index @($Action).Count }
             continue
         }
 
@@ -408,12 +440,9 @@ function Invoke-FileActionPlan {
             throw "Action for $($item.Destination) has neither a source nor content."
         }
 
-        if ($OnProgress) { & $OnProgress $index $todo.Count }
+        if ($OnProgress) { & $OnProgress $index @($Action).Count }
     }
-
-    Remove-EmptyFolder -Path $emptied -Stop $InstallPath
-
-    return [pscustomobject]@{ Performed = $todo; BackupPath = $backupPath }
+    return @($emptied)
 }
 
 function Remove-EmptyFolder {

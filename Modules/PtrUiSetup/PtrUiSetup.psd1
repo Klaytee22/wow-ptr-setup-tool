@@ -36,6 +36,7 @@
         'New-TreeCopyPlan'
         'New-SingleFileCopyPlan'
         'Invoke-FileActionPlan'
+        'Write-FileAction'
         'Get-PtrSetupBackup'
         'Restore-PtrSetupBackup'
         'Remove-PtrSetupBackup'

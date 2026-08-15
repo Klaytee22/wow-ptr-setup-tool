@@ -466,3 +466,52 @@ Describe 'Deleting backups' {
         Assert-Equal 0 $result.Removed
     }
 }
+
+Describe 'Writing without a backup' {
+
+    It 'writes the same files either way' {
+        # The backed-up path and the skip-backup path share one writing loop, so
+        # what lands on disk cannot depend on which was taken.
+        foreach ($skip in @($false, $true)) {
+            $install = Join-Path $script:TestDrive "install-$skip"
+            $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "old`n"
+            $null = New-TestFile -Path (Join-Path $install 'WTF/gone.txt') -Content "bye`n"
+
+            $null = Invoke-FileActionPlan -InstallPath $install -Label 'x' -SkipBackup:$skip -Action @(
+                New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "new`n"
+                New-FileAction -Kind 'create' -Destination (Join-Path $install 'WTF/added.txt') -Content "hello`n"
+                New-FileAction -Kind 'delete' -Destination (Join-Path $install 'WTF/gone.txt'))
+
+            Assert-Equal "new`n" (Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw)
+            Assert-Equal "hello`n" (Get-Content -LiteralPath (Join-Path $install 'WTF/added.txt') -Raw)
+            Assert-False (Test-Path -LiteralPath (Join-Path $install 'WTF/gone.txt'))
+        }
+    }
+
+    It 'leaves no backup folder behind when told to skip it' {
+        $install = Join-Path $script:TestDrive 'skip'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "old`n"
+        $result = Invoke-FileActionPlan -InstallPath $install -Label 'x' -SkipBackup -Action @(
+            New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "new`n")
+
+        Assert-Equal $null $result.BackupPath
+        Assert-Equal 0 @(Get-PtrSetupBackup -InstallPath $install).Count
+        Assert-False (Test-Path -LiteralPath (Join-Path $install '_ptrsetup_backups'))
+    }
+
+    It 'still takes one when not told to skip it' {
+        $install = Join-Path $script:TestDrive 'keep'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "old`n"
+        $result = Invoke-FileActionPlan -InstallPath $install -Label 'x' -Action @(
+            New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "new`n")
+        Assert-True ($null -ne $result.BackupPath)
+    }
+
+    It 'writes nothing on a preview whichever way it is asked' {
+        $install = Join-Path $script:TestDrive 'preview'
+        $null = New-TestFile -Path (Join-Path $install 'WTF/Config.wtf') -Content "old`n"
+        $null = Invoke-FileActionPlan -InstallPath $install -Label 'x' -PreviewOnly -SkipBackup -Action @(
+            New-FileAction -Kind 'overwrite' -Destination (Join-Path $install 'WTF/Config.wtf') -Content "new`n")
+        Assert-Equal "old`n" (Get-Content -LiteralPath (Join-Path $install 'WTF/Config.wtf') -Raw)
+    }
+}

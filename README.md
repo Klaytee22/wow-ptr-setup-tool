@@ -202,9 +202,13 @@ differently from everything else:
 - **It is never ticked for you.** Every other automated step is on by default; this one
   you have to choose.
 - The Apply confirmation names it and names the folder it will write to.
-- It is previewable like anything else, backed up before it writes, and its backup shows
-  up in the Restore dropdown marked `LIVE —`.
+- It is previewable like anything else.
 - It touches nothing but `macros-cache.txt`, and within that nothing but the names.
+- It is the one step that does **not** leave a backup. It writes once and then reports
+  itself done, so a backup would be a folder created inside your real game install and
+  never used again. That does mean no undo from the window: if you want one,
+  `tools\Rename-DuplicateMacros.ps1` does the same job and keeps the original beside the
+  file as `macros-cache.txt.before-rename`.
 
 **The order matters:**
 

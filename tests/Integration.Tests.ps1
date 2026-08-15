@@ -384,16 +384,32 @@ Describe 'The one step that writes to the live client' {
         Assert-Equal $before (Get-TreeSnapshot -Root $mock.Context.Source.Path)
     }
 
-    It 'backs the live files up where Restore can find them' {
+    It 'leaves no backup folder in the live client' {
+        # It writes once and then reports itself done, so a backup would be a
+        # folder created inside the real game install and never used again.
+        # That does mean there is no undo for this one step: the fallback is
+        # tools/Rename-DuplicateMacros.ps1, which keeps a copy beside the file.
         $mock = New-MockEnvironment -Root $script:TestDrive
-        $before = Get-TreeSnapshot -Root $mock.Context.Source.Path
         $result = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $mock.Context
-        Assert-True ($null -ne $result.BackupPath) 'No backup was taken of the live files.'
 
-        $backups = @(Get-PtrSetupBackup -InstallPath $mock.Context.Source.Path)
-        Assert-True ($backups.Count -ge 1) 'The live backup is not listed.'
-        $null = Restore-PtrSetupBackup -InstallPath $mock.Context.Source.Path -BackupId $backups[0].Id
-        Assert-Equal $before (Get-TreeSnapshot -Root $mock.Context.Source.Path) 'Restore did not put the live client back.'
+        Assert-Equal $null $result.BackupPath 'The step should not be taking a backup.'
+        Assert-False (Test-Path -LiteralPath (Join-Path $mock.Context.Source.Path '_ptrsetup_backups')) `
+            'A backup folder was left inside the live client.'
+        Assert-True ($result.Message -notmatch 'backed up') "The message promises a backup that is not there: $($result.Message)"
+    }
+
+    It 'still writes what it said it would, without the backup' {
+        $mock = New-MockEnvironment -Root $script:TestDrive
+        $cache = Join-Path (Get-ContextAccountPath -Context $mock.Context -Side 'Source') 'macros-cache.txt'
+        $null = Invoke-PtrSetupStep -Step (Get-PtrSetupStep -Id 'name_live_macros') -Context $mock.Context
+        Assert-Equal 0 @(Get-MacroNameConflict -Text (Get-Content -LiteralPath $cache -Raw)).Count
+    }
+
+    It 'is the only step that skips its backup' {
+        # Everything else writes into the PTR folder, where an undo costs
+        # nothing and is the whole reason Restore exists.
+        $skipping = @((Get-PtrSetupStep | Where-Object { $_.NoBackup }).Id)
+        Assert-Equal @('name_live_macros') $skipping
     }
 
     It 'reports itself done once the names are unique' {

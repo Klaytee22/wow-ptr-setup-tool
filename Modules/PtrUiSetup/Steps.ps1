@@ -152,6 +152,8 @@ function New-PtrSetupStep {
         # Left unticked when the window first draws the list, however ready it
         # is. For anything a user should choose rather than be handed.
         [switch] $OptIn,
+        # Write without keeping a copy of what was replaced.
+        [switch] $NoBackup,
         [scriptblock] $Prerequisite,
         [scriptblock] $Plan,
         [scriptblock] $Status
@@ -167,6 +169,7 @@ function New-PtrSetupStep {
         SourceNote   = $SourceNote
         WritesTo     = $WritesTo
         OptIn        = [bool]$OptIn
+        NoBackup     = [bool]$NoBackup
         Prerequisite = $Prerequisite
         Plan         = $Plan
         Status       = $Status
@@ -236,11 +239,11 @@ $script:PtrSetupSteps = @(
         return New-PtrSetupStepStatus -State 'done' -Detail 'No WoW client is running.'
     }
 
-    New-PtrSetupStep -Id 'name_live_macros' -Mode 'auto' -WritesTo 'Source' -OptIn `
+    New-PtrSetupStep -Id 'name_live_macros' -Mode 'auto' -WritesTo 'Source' -OptIn -NoBackup `
         -Title 'Break ties between macros on your LIVE client' `
         -Summary 'The only step that writes to your live client. Off unless you tick it.' `
         -SourceNote 'Not in the guide. An action bar saver records the name of the macro in each slot, and it does that on live.' `
-        -Instructions 'An action bar saver writes down, for every slot, the name of the macro in it — and it does that on your live client. Thirty macros all called " " make that profile ambiguous the moment it is saved, and no amount of fixing on the PTR side can recover which slot wanted which macro. This gives the duplicates a suffix built from spaces, so they read exactly the same on your bars and are unique to anything looking them up. The first macro of each name keeps it untouched. Do this, then log in on live and save your action bar profile — in that order, or the profile is written from the old names. Everything replaced is backed up first, and Restore puts it back.' `
+        -Instructions 'An action bar saver writes down, for every slot, the name of the macro in it — and it does that on your live client. Thirty macros all called " " make that profile ambiguous the moment it is saved, and no amount of fixing on the PTR side can recover which slot wanted which macro. This gives the duplicates a suffix built from spaces, so they read exactly the same on your bars and are unique to anything looking them up. The first macro of each name keeps it untouched. Do this, then log in on live and save your action bar profile — in that order, or the profile is written from the old names. It runs once: afterwards the names are unique and it reports itself done, so it leaves no backup folder behind in your live client.' `
         -Prerequisite {
         param($Context)
         if (-not $Context.SourceAccount) { return 'Pick an account folder on the live client first.' }
@@ -666,7 +669,7 @@ function Invoke-PtrSetupStep {
         # the fence itself is what stops a mis-planned action escaping, so it
         # has to name the folder actually being written to.
         $result = Invoke-FileActionPlan -Action $actions -InstallPath $Context.($Step.WritesTo).Path -Label $Step.Id `
-            -PreviewOnly:$PreviewOnly -OnProgress $OnProgress
+            -PreviewOnly:$PreviewOnly -SkipBackup:$Step.NoBackup -OnProgress $OnProgress
     }
     catch {
         return [pscustomobject]@{
