@@ -126,8 +126,10 @@ a modern client, so its `/abs` command does not exist and it looks as though not
 installed. Two that are maintained for the Anniversary clients:
 
 - [ActionBarSaver: Reloaded] — a rewrite of the original, with separate
-  **Anniversary-Era** and **Anniversary-TBC** downloads. Note that it files sets by
-  **class** rather than by character.
+  **Anniversary-Era** and **Anniversary-TBC** downloads. It files sets by **class**, not
+  by character, so the copied character having a different name or realm makes no
+  difference to it: land the file on the PTR and `/abs list` shows your sets. Its own
+  data is account-level, so step 6 carries it.
 - [TBCA Action Bars Saver] — built for Classic/TBC Anniversary, ten bars, and it copes
   with spells that are missing on the destination.
 
@@ -151,6 +153,11 @@ in this order:
    is simply not on the PTR yet. Re-run the tool; the window notices the live `AddOns`
    folder changing on its own, so the addon step will already be offering to copy again.
    This is far and away the most common cause.
+
+   While you are at it: **log into the live client once after installing an addon,
+   before running this tool.** `AddOns.txt` is a snapshot of which addons were ticked
+   the last time that character logged in, and step 7 copies it. Take the snapshot
+   before the addon existed and the copied character has no entry for it.
 2. **Is the folder there?** Look for `Interface\AddOns\<Addon>\` inside the PTR client
    folder. Nothing there means point 1.
 3. **Is it ticked?** At character select, open **AddOns**. A copied addon that is listed
