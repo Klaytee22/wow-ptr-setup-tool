@@ -108,26 +108,22 @@ button, so wanting clean bars leads to naming every macro the same single space.
 macros called `" "` is thirty conflicts. But two both called `weps` break it just as
 thoroughly, and that is the actual problem — duplication, not blankness.
 
-There is an option, **Break ties between macros that share a name**, which fixes the
-PTR's copy on the way over. The first macro of each duplicated name keeps it; the rest
-get a suffix built from spaces and no-break spaces, so `weps` still reads as `weps` on
-the bar while being unique to anything looking it up. A macro whose name is already its
-own is never touched.
+The fix is on the **live** client, before the profile is saved, and nowhere else. The
+addon records, for each slot, the name of the macro sitting in it — and it does that on
+live, where the names collide. A profile saved from thirty identically-named macros is
+already ambiguous; renaming afterwards, on either client, cannot recover which slot
+wanted which macro. There is no PTR-side rename, because one would not help.
+
+The first macro of each duplicated name keeps it; the rest get a suffix built from spaces
+and no-break spaces, so `weps` still reads as `weps` on the bar while being unique to
+anything looking it up. A macro whose name is already its own is never touched.
 
 Your general macros and a character's own are one namespace in game, and they are
 reconciled against each other rather than one file at a time — a `CORE` in each is two
 macros called `CORE` as far as an addon is concerned, and *Found 2 macros named 'CORE'*
 is what you get if only one file is looked at.
 
-**On its own that is not enough for an action bar saver**, and it is worth being clear
-why. The addon records, for each slot, the name of the macro in it — and it does that
-*on your live client*, where the names still collide. A profile saved from thirty
-identically-named macros is already ambiguous; making the PTR's names unique afterwards
-cannot recover which slot wanted which macro.
-
-So the names have to be fixed on the **live** client, before the profile is saved.
-
-There is a step for it in the window — **Break ties between macros on your LIVE client**.
+The step is **Break ties between macros on your LIVE client**.
 It is the only thing in the whole tool that writes outside the PTR folder, so it behaves
 differently from everything else:
 
