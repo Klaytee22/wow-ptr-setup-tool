@@ -8,7 +8,24 @@
 $repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 
 function Get-PowerShellFile {
-    return @(Get-ChildItem -LiteralPath $repoRoot -Include '*.ps1', '*.psm1' -File -Recurse |
+    <#
+        Every PowerShell source in the repository, and nothing else.
+
+        -Filter rather than -Include: alongside -LiteralPath, -Include is not
+        applied on Windows PowerShell 5.1, and the scan quietly widened to every
+        file in the repository. The XAML parsed as PowerShell is a page of
+        commands that do not exist, so the checks below were reporting the
+        layout file at length while saying nothing about 5.1 that was true.
+
+        The extension is checked as well, because -Filter is handed to the
+        filesystem's own matching, where *.ps1 can also catch a longer one.
+    #>
+    $wanted = @('.ps1', '.psm1')
+    $files = foreach ($extension in $wanted) {
+        Get-ChildItem -LiteralPath $repoRoot -Filter "*$extension" -File -Recurse |
+            Where-Object { $_.Extension -eq $extension }
+    }
+    return @($files |
             Where-Object { $_.FullName -notlike "*$([System.IO.Path]::DirectorySeparatorChar).git$([System.IO.Path]::DirectorySeparatorChar)*" })
 }
 
@@ -97,6 +114,24 @@ Describe 'Assignments that quietly change shape' {
 }
 
 Describe 'Calls into our own functions' {
+
+    It 'reads PowerShell files and nothing else' {
+        # Everything in this file parses whatever Get-PowerShellFile hands back
+        # as PowerShell. Hand it the XAML and every element in it reads as a
+        # command that does not exist; hand it nothing and the checks pass by
+        # having looked at no code at all. Neither says so out loud, which is
+        # why this is asserted rather than assumed.
+        $files = @(Get-PowerShellFile)
+        Assert-True ($files.Count -gt 10) "Expected to find the sources, found $($files.Count)."
+
+        $wrong = @($files | Where-Object { $_.Extension -notin @('.ps1', '.psm1') })
+        Assert-Equal 0 $wrong.Count ("Not PowerShell: " + ((@($wrong) | ForEach-Object { $_.Name }) -join ', '))
+
+        foreach ($expected in @('PtrUiSetup.ps1', 'Steps.ps1', 'PtrUiSetup.psm1', 'Syntax.Tests.ps1')) {
+            Assert-True ([bool]@($files | Where-Object { $_.Name -eq $expected }).Count) `
+                "$expected should be among the files checked."
+        }
+    }
 
     It 'calls something that exists' {
         # A mistyped function name is a runtime error, and most of the window
