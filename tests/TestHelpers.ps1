@@ -15,6 +15,10 @@ SET realmList "us.logon.worldofwarcraft.com"
 SET Sound_MasterVolume "0.4"
 '@
 
+# Handed out one second at a time by New-TestFile. Backdated a day so nothing
+# written by a test is stamped in the future.
+$script:LastTestFileStamp = [datetime]::UtcNow.AddDays(-1)
+
 function New-TestFile {
     param(
         [Parameter(Mandatory)] [string] $Path,
@@ -26,6 +30,16 @@ function New-TestFile {
         $null = New-Item -ItemType Directory -Path $parent -Force
     }
     Write-TextFileNoBom -Path $Path -Content $Content
+
+    # Every file gets a stamp of its own. `Test-FileUnchanged` reads an equal
+    # size and an equal last-write time as "already copied", and Windows'
+    # timestamps are coarse enough that two same-size files written back to back
+    # can share one — which turned a test meaning "these two differ" into a
+    # coin flip that came up heads on most machines and tails on a CI runner.
+    # A test that wants two files to compare equal copies one to the other,
+    # because that is what preserves a timestamp in the tool itself.
+    $script:LastTestFileStamp = $script:LastTestFileStamp.AddSeconds(1)
+    [System.IO.File]::SetLastWriteTimeUtc($Path, $script:LastTestFileStamp)
     return $Path
 }
 

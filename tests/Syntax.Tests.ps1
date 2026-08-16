@@ -133,9 +133,16 @@ Describe 'Calls into our own functions' {
                 if (-not $name -or $name -match '[$]') { continue }
                 if ($defined.Contains($name)) { continue }
                 if ($optional -contains $name) { continue }
-                if (Get-Command -Name $name -ErrorAction SilentlyContinue) { continue }
 
-                $offences.Add(("{0}:{1} — nothing called {2}" -f $file.Name, $command.Extent.StartLineNumber, $name))
+                # Escaped: -Name takes a wildcard pattern, and a literal name is
+                # not one. Left unescaped, a name carrying a bracket is not
+                # merely looked up wrongly — Windows PowerShell rejects it as a
+                # malformed pattern and the whole check dies part way through.
+                $pattern = [System.Management.Automation.WildcardPattern]::Escape($name)
+                if (Get-Command -Name $pattern -ErrorAction SilentlyContinue) { continue }
+
+                $offences.Add(("{0}:{1} — nothing called {2} (in: {3})" -f $file.Name,
+                        $command.Extent.StartLineNumber, $name, $command.Extent.Text))
             }
         }
 

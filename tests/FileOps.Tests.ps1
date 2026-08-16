@@ -308,8 +308,9 @@ Describe 'Test-FileUnchanged' {
         # run able to tell "already copied" from "needs copying".
         Assert-True (Test-FileUnchanged -Source (Get-Item $source) -Destination (Get-Item $copy))
 
-        Start-Sleep -Milliseconds 20
-        $null = New-TestFile -Path $copy -Content 'profile data'   # same size, later stamp
+        # Same size, later stamp — New-TestFile gives every file one of its own,
+        # so this does not depend on how fast the machine is.
+        $null = New-TestFile -Path $copy -Content 'profile data'
         Assert-True (-not (Test-FileUnchanged -Source (Get-Item $source) -Destination (Get-Item $copy))) `
             'A same-size file written later is a different file.'
     }
