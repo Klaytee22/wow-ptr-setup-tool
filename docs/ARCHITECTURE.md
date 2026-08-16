@@ -115,14 +115,23 @@ A superseded answer is dropped by comparing a token, cancellation is `BeginStop`
 than `Stop` so cancelling never blocks the thread it is protecting, and if a runspace
 cannot be had at all the window falls back to planning inline — slower, but working.
 
-**Applying runs on the worker too.** Copying pumps the window between files, but the
+**One runspace apiece.** A runspace runs one pipeline at a time, and cancelling is
+asynchronous: `BeginStop` returns while the pipeline is still winding down. Two things
+follow. Apply gets its own runspace (`Get-RunWorker`) rather than the planner's, because
+a plan still in flight when Apply started came back as *the pipeline was not run because
+a pipeline is already running*, reported against whichever step happened to be first.
+And the planner can collide with itself the same way, so `Start-NextPlan` checks
+`RunspaceAvailability` before it takes a step off the queue and waits for the next tick
+if the worker is still busy — after six seconds of that it plans in the window instead,
+so a wedged worker cannot leave a card on *checking* forever.
+
+**Applying runs on a worker too.** Copying pumps the window between files, but the
 phases around it do not — validating the whole batch, copying every replaced file into
 the backup, writing a manifest listing thousands of paths — and on a real install that
-is long enough for Windows to grey the window out and call it not responding. The run
-goes to the same runspace, and progress comes back through a synchronized hashtable the
-worker writes and a timer here reads, so the only thing crossing threads is a table of
-numbers. `Invoke-RunHere` is the same run on this thread, for a machine that will not
-give out a runspace.
+is long enough for Windows to grey the window out and call it not responding. Progress
+comes back through a synchronized hashtable the worker writes and a timer here reads, so
+the only thing crossing threads is a table of numbers. `Invoke-RunHere` is the same run
+on this thread, for a machine that will not give out a runspace.
 
 **A step that cannot be worked out is recorded as an empty plan and reported**, never
 left pending. The queue moves on in a `finally`, because a step still waiting is far

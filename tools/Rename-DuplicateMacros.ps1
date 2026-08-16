@@ -21,6 +21,10 @@
     own is not touched. Nothing else in the file changes: bodies, icons, ids,
     ordering and line endings all survive.
 
+    One file at a time, so the account file and each character's have to be
+    reconciled against each other with -Reserve. The window's step does that
+    for you; this does not do it by itself.
+
     QUIT WORLD OF WARCRAFT FIRST. It rewrites macros-cache.txt when it exits and
     will put the old names straight back.
 
@@ -34,6 +38,13 @@
     sets share one namespace in game, so the suffixes are drawn from different
     characters and a generated name in one can never equal one in the other.
 
+.PARAMETER Reserve
+    Other macros-cache.txt files whose names are already spoken for. In game
+    there is one namespace: a macro called CORE in the account file and another
+    in a character's collide exactly as if they were in one file, and fixing
+    each file on its own leaves that pair untouched. Do the account file first,
+    then pass it here when you do each character.
+
 .PARAMETER Apply
     Write the change. Without it this only reports what it would do.
 
@@ -41,13 +52,15 @@
     .\tools\Rename-DuplicateMacros.ps1 -Path 'C:\...\WTF\Account\12345#1\macros-cache.txt'
 
 .EXAMPLE
-    .\tools\Rename-DuplicateMacros.ps1 -Path '...\Hunnybuns\macros-cache.txt' -Scope Character -Apply
+    .\tools\Rename-DuplicateMacros.ps1 -Path '...\Hunnybuns\macros-cache.txt' -Scope Character -Apply `
+        -Reserve 'C:\...\WTF\Account\12345#1\macros-cache.txt'
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $Path,
     [ValidateSet('Account', 'Character')] [string] $Scope = 'Account',
+    [string[]] $Reserve,
     [switch] $Apply
 )
 
@@ -55,6 +68,15 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'Modules/PtrUiSetup/PtrUiSetup.psd1') -Force
 
 if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "No file at $Path" }
+
+$reserved = [System.Collections.Generic.List[string]]::new()
+foreach ($other in @($Reserve)) {
+    if (-not $other) { continue }
+    if (-not (Test-Path -LiteralPath $other -PathType Leaf)) { throw "No file at $other" }
+    foreach ($entry in (Get-MacroCacheEntry -Text (Read-TextFileUtf8 -Path $other))) {
+        $reserved.Add($entry.Name)
+    }
+}
 
 $running = @(Get-RunningWowProcess)
 if ($running.Count -gt 0) {
@@ -69,8 +91,12 @@ if ($running.Count -gt 0) {
 $text = Read-TextFileUtf8 -Path $Path
 $before = @(Get-MacroCacheEntry -Text $text)
 $conflicts = @(Get-MacroNameConflict -Text $text)
-$affected = (@($conflicts | ForEach-Object { $_.Count - 1 }) | Measure-Object -Sum).Sum
-if (-not $affected) { $affected = 0 }
+
+# A name unique in this file but already taken by a reserved one is a conflict
+# just the same — that is the whole reason -Reserve exists.
+$spokenFor = [System.Collections.Generic.HashSet[string]]::new(
+    [string[]] @($reserved), [System.StringComparer]::Ordinal)
+$clashes = @($before | Where-Object { $spokenFor.Contains($_.Name) }).Count
 
 Write-Host ''
 Write-Host "  $Path" -ForegroundColor Cyan
@@ -79,22 +105,32 @@ foreach ($conflict in ($conflicts | Select-Object -First 5)) {
     $shown = if ([string]::IsNullOrWhiteSpace($conflict.Name)) { '(blank)' } else { $conflict.Name }
     Write-Host "    $($conflict.Count) x `"$shown`""
 }
+if ($clashes) {
+    Write-Host "  $clashes also share a name with one of the $(@($Reserve).Count) reserved file(s)." -ForegroundColor Cyan
+}
 
-if ($conflicts.Count -eq 0) {
+if ($conflicts.Count -eq 0 -and $clashes -eq 0) {
     Write-Host '  Nothing to do — every macro already has a name of its own.' -ForegroundColor Green
     Write-Host ''
     return
 }
 
-$updated = Resolve-MacroNameConflict -Text $text -Scope $Scope
+$updated = Resolve-MacroNameConflict -Text $text -Scope $Scope -Reserved @($reserved)
 if ($null -eq $updated) {
     Write-Host '  Already unique — the ties are broken by the invisible suffixes this writes.' -ForegroundColor Green
     Write-Host ''
     return
 }
 
-# Shown as code points, because the whole point is that they look like nothing.
+# Counted from what actually changed rather than from the conflict list, so a
+# name pulled in by -Reserve is included the same as one duplicated here.
 $after = @(Get-MacroCacheEntry -Text $updated)
+$affected = 0
+for ($index = 0; $index -lt $after.Count; $index++) {
+    if ($after[$index].Name -cne $before[$index].Name) { $affected++ }
+}
+
+# Shown as code points, because the whole point is that they look like nothing.
 Write-Host ''
 Write-Host "  $affected macro(s) get a suffix (invisible on a bar; code points shown):" -ForegroundColor Cyan
 foreach ($entry in ($after | Select-Object -First 5)) {

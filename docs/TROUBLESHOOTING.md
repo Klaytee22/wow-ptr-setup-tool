@@ -114,6 +114,11 @@ get a suffix built from spaces and no-break spaces, so `weps` still reads as `we
 the bar while being unique to anything looking it up. A macro whose name is already its
 own is never touched.
 
+Your general macros and a character's own are one namespace in game, and they are
+reconciled against each other rather than one file at a time — a `CORE` in each is two
+macros called `CORE` as far as an addon is concerned, and *Found 2 macros named 'CORE'*
+is what you get if only one file is looked at.
+
 **On its own that is not enough for an action bar saver**, and it is worth being clear
 why. The addon records, for each slot, the name of the macro in it — and it does that
 *on your live client*, where the names still collide. A profile saved from thirty
@@ -152,8 +157,16 @@ There is the same thing as a script, if you would rather do it outside the windo
 ```
 
 It reports what it would do and writes nothing until you add `-Apply`, keeping the
-original as `macros-cache.txt.before-rename`. Do the character-level file too, with
-`-Scope Character`.
+original as `macros-cache.txt.before-rename`.
+
+One file at a time, so unlike the step in the window it does not reconcile them for you.
+Do the account file first, then each character's with the account file named:
+
+```powershell
+.\tools\Rename-DuplicateMacros.ps1 -Scope Character -Apply `
+  -Path 'C:\...\WTF\Account\<ACCOUNT>\<Realm>\<Character>\macros-cache.txt' `
+  -Reserve 'C:\...\WTF\Account\<ACCOUNT>\macros-cache.txt'
+```
 
 ### An addon that loads on live and errors on the PTR
 
