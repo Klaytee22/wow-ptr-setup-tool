@@ -7,28 +7,21 @@ The repository is at <https://github.com/Klaytee22/wow-ptr-setup-tool> and CI ru
 
 <https://github.com/Klaytee22/wow-ptr-setup-tool/archive/refs/heads/master.zip>
 
-Clicking it downloads the zip. That matters more than it sounds: a release page puts the
-zip under *Assets*, below the notes and collapsed on a phone, and somebody who does not
-use GitHub will not find it. This link has nothing to find.
-
-It always carries the current `master`, so it never needs changing and nobody ends up on
-a stale build. The cost is that every download reports the same version until you bump
-one, which is what the next section is for.
+Clicking it downloads the zip — a release page hides it under *Assets*, collapsed on a
+phone. It always carries the current `master`, so the link never needs changing, and
+every download reports the same version until you bump one.
 
 ## Cut a release
 
-Releases are the notes and the version number, not the download. Worth one whenever
-there is something to say. [Draft a new release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/new),
-type the tag, choose *Create new tag on publish*, publish — GitHub attaches the zip
-itself, nothing to build.
+Releases are the notes and the version number, not the download.
+[Draft a new release](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/new), type
+the tag, choose *Create new tag on publish*, publish.
 
-**Bump `ModuleVersion` in `Modules/PtrUiSetup/PtrUiSetup.psd1` to match the tag, and push
-that before you publish.** The window writes that version into `%TEMP%\ptrsetup-error.log`,
-so it is what places a report against a build — and it is only worth anything if the two
-agree.
+**Bump `ModuleVersion` in `Modules/PtrUiSetup/PtrUiSetup.psd1` to match the tag first.**
+The window writes it into `%TEMP%\ptrsetup-error.log`, which is what places a report
+against a build.
 
-For a download pinned to one release rather than to `master`, the same direct form works:
-`…/archive/refs/tags/v1.0.zip`.
+For a download pinned to one release: `…/archive/refs/tags/v1.0.zip`.
 
 ## A message you can paste
 

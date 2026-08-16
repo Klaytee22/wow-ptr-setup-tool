@@ -9,9 +9,7 @@ your folders and ticking each step off as it sees it done.
 
 ## Running it
 
-**[Download the zip](https://github.com/Klaytee22/wow-ptr-setup-tool/archive/refs/heads/master.zip)** —
-that link starts the download itself, nothing to hunt for. ([Release notes](https://github.com/Klaytee22/wow-ptr-setup-tool/releases/latest)
-are separate, and the zip is under *Assets* there if you would rather.)
+**[Download the zip.](https://github.com/Klaytee22/wow-ptr-setup-tool/archive/refs/heads/master.zip)**
 
 **Extract it first** — Documents or Desktop is fine, `Program Files` is not, and running
 it from inside the zip preview will not work. Then **double-click
