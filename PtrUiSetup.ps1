@@ -219,6 +219,11 @@ $script:MappingTouched = $false
 $script:Running = $false
 # Workers told to stop, kept until they have and can be disposed.
 $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
+# Apply runs in its own runspace, never the planner's — a runspace runs one
+# pipeline at a time and the two would collide.
+$script:RunWorker = $null
+# Ticks spent waiting for an abandoned request to finish stopping.
+$script:PlanWaits = 0
 
 # Which steps have to be re-planned when something changes. Picking a character
 # cannot alter what the addon copy would do, and re-walking a 30,000-file AddOns
@@ -434,7 +439,10 @@ function Update-OnChange {
     Update-Steps
     Update-Summary
     Update-Backups
-    Write-Result '[auto] Something changed on disk — refreshed.'
+    # No line in the Results box for this. It fires whenever anything under
+    # either folder moves — including an Apply's own writes, which produced ten
+    # identical lines in a row after every run — and the header already says the
+    # window is watching.
 }
 
 function Get-CharacterId {
@@ -537,10 +545,39 @@ function Set-WowFolder {
 # the ordinary event handlers, and the worker never sees a live context — only a
 # snapshot of plain values it rebuilds for itself.
 
+function New-LoadedRunspace {
+    <#
+    .SYNOPSIS
+        A background runspace with the module already imported.
+
+    .DESCRIPTION
+        Throws if the runspace cannot be opened or the module will not load in
+        it. The callers catch that and fall back to working in the window.
+    #>
+    $runspace = [runspacefactory]::CreateRunspace()
+    # Left in the default apartment on purpose: the worker only touches files,
+    # and asking for STA is one more thing that can fail for no benefit.
+    $runspace.ThreadOptions = 'ReuseThread'
+    $runspace.Open()
+
+    # Import once, here, rather than on every request.
+    $loader = [powershell]::Create()
+    $loader.Runspace = $runspace
+    $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument($script:ModulePath)
+    $null = $loader.Invoke()
+    $failed = @($loader.Streams.Error)
+    $loader.Dispose()
+    if ($failed.Count) {
+        try { $runspace.Dispose() } catch { <# nothing to keep #> }
+        throw "the worker could not load the module: $($failed[0])"
+    }
+    return $runspace
+}
+
 function Get-PlanWorker {
     <#
     .SYNOPSIS
-        The background runspace, opened and loaded on first use.
+        The runspace the planner uses, opened and loaded on first use.
 
     .DESCRIPTION
         Returns $null if a runspace cannot be had, which puts the window back on
@@ -550,27 +587,41 @@ function Get-PlanWorker {
     if ($script:Worker -and $script:Worker.RunspaceStateInfo.State -eq 'Opened') { return $script:Worker }
 
     try {
-        $runspace = [runspacefactory]::CreateRunspace()
-        # Left in the default apartment on purpose: the worker only reads files,
-        # and asking for STA is one more thing that can fail for no benefit.
-        $runspace.ThreadOptions = 'ReuseThread'
-        $runspace.Open()
-
-        # Import once, here, rather than on every request.
-        $loader = [powershell]::Create()
-        $loader.Runspace = $runspace
-        $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument($script:ModulePath)
-        $null = $loader.Invoke()
-        $failed = @($loader.Streams.Error)
-        $loader.Dispose()
-        if ($failed.Count) { throw "the worker could not load the module: $($failed[0])" }
-
-        $script:Worker = $runspace
+        $script:Worker = New-LoadedRunspace
         return $script:Worker
     }
     catch {
         $script:AsyncBroken = $true
         Write-Result "[note] Planning in the background is unavailable ($($_.Exception.Message)); the window will do it directly and may pause."
+        return $null
+    }
+}
+
+function Get-RunWorker {
+    <#
+    .SYNOPSIS
+        The runspace Apply uses. Deliberately not the planner's.
+
+    .DESCRIPTION
+        A runspace runs one pipeline at a time. Sharing one between the planner
+        and the run meant that a plan still in flight when Apply started — or the
+        folder watcher asking for one while a run was going — threw "a pipeline
+        is already running", and the step it belonged to failed with a message
+        about pipelines that had nothing to do with anything the user did.
+
+        Stopping the planner first is not enough on its own: stopping is
+        asynchronous, and the pipeline can still be winding down when Apply wants
+        to start. Two runspaces cannot collide at all.
+    #>
+    if ($script:AsyncBroken) { return $null }
+    if ($script:RunWorker -and $script:RunWorker.RunspaceStateInfo.State -eq 'Opened') { return $script:RunWorker }
+
+    try {
+        $script:RunWorker = New-LoadedRunspace
+        return $script:RunWorker
+    }
+    catch {
+        Write-Result "[note] Applying in the background is unavailable ($($_.Exception.Message)); the window will do it directly and may pause."
         return $null
     }
 }
@@ -637,7 +688,23 @@ function Start-PlanRequest {
     foreach ($id in @($StepId)) { $script:PlanQueue.Enqueue($id) }
     $script:PlanTotal = $script:PlanQueue.Count
     $script:PlanDone = 0
+    $script:PlanWaits = 0
     Start-NextPlan
+}
+
+function Start-PlanTimer {
+    <#
+    .SYNOPSIS
+        The tick that carries a worker's answer back to the UI thread.
+    #>
+    if (-not $script:PlanTimer) {
+        $script:PlanTimer = New-Object System.Windows.Threading.DispatcherTimer
+        $script:PlanTimer.Interval = [TimeSpan]::FromMilliseconds(60)
+        # Ticks on the UI thread, so this is the one place a worker's answer
+        # meets WPF.
+        $script:PlanTimer.Add_Tick({ Invoke-Guarded { Receive-PlanRequest } })
+    }
+    $script:PlanTimer.Start()
 }
 
 function Start-NextPlan {
@@ -650,8 +717,29 @@ function Start-NextPlan {
         return
     }
 
-    $stepId = $script:PlanQueue.Dequeue()
+    # Asked for before the step is taken off the queue, so a worker that is not
+    # ready costs nothing and the step stays where it is.
     $runspace = Get-PlanWorker
+
+    # Stopping a request is asynchronous — Stop-PlanRequest calls BeginStop and
+    # returns before the pipeline has noticed. A runspace runs one pipeline at a
+    # time, so starting the next one now is exactly the collision that made a
+    # step come back as "the pipeline was not run because a pipeline is already
+    # running". Wait for the tick instead; a stopping pipeline gets there in a
+    # few of them.
+    if ($runspace -and $runspace.RunspaceAvailability -eq 'Busy' -and $script:PlanWaits -lt 100) {
+        $script:PlanWaits++
+        Start-PlanTimer
+        return
+    }
+
+    $stepId = $script:PlanQueue.Dequeue()
+    # Six seconds is far longer than stopping has ever taken. Something is
+    # wedged, so fall back to the path used when there is no worker at all
+    # rather than leaving the card on "checking" forever.
+    if ($runspace -and $script:PlanWaits -ge 100) { $runspace = $null }
+    $script:PlanWaits = 0
+
     if (-not $runspace) {
         # No worker to be had: plan here, exactly as the window used to, and keep
         # going down the queue.
@@ -684,14 +772,7 @@ function Start-NextPlan {
         StepId = $stepId
     }
 
-    if (-not $script:PlanTimer) {
-        $script:PlanTimer = New-Object System.Windows.Threading.DispatcherTimer
-        $script:PlanTimer.Interval = [TimeSpan]::FromMilliseconds(60)
-        # Ticks on the UI thread, so this is the one place a worker's answer
-        # meets WPF.
-        $script:PlanTimer.Add_Tick({ Invoke-Guarded { Receive-PlanRequest } })
-    }
-    $script:PlanTimer.Start()
+    Start-PlanTimer
 }
 
 function Update-PlanProgress {
@@ -715,6 +796,13 @@ function Receive-PlanRequest {
     Clear-AbandonedRequest
     $job = $script:PlanJob
     if (-not $job) {
+        # Nothing in flight. Either a step is waiting for the worker to come
+        # free — Start-NextPlan defers rather than colliding with a request that
+        # is still stopping — or there is genuinely nothing left to do.
+        if ($script:PlanQueue -and $script:PlanQueue.Count) {
+            Start-NextPlan
+            return
+        }
         $script:PlanTimer.Stop()
         return
     }
@@ -1415,7 +1503,11 @@ function Invoke-Run {
     $ui.ProgressBar.Value = 0
     Write-Result '--- Applying ---'
 
-    $runspace = Get-PlanWorker
+    # Nothing queued behind the run: the plans are already worked out, and a
+    # request arriving mid-run would be answered against a folder being written
+    # to. Its own runspace as well — see Get-RunWorker.
+    Stop-PlanRequest
+    $runspace = Get-RunWorker
     if (-not $runspace) {
         Invoke-RunHere -StepId $stepIds
         return
@@ -1772,10 +1864,12 @@ $window.Add_Closed({
         if ($script:RunTimer) { $script:RunTimer.Stop() }
         Stop-PlanRequest
         Clear-AbandonedRequest
-        if ($script:Worker) {
-            try { $script:Worker.Close() } catch { <# already gone #> }
-            try { $script:Worker.Dispose() } catch { <# already gone #> }
-            $script:Worker = $null
+        foreach ($name in @('Worker', 'RunWorker')) {
+            $runspace = Get-Variable -Name $name -Scope Script -ValueOnly -ErrorAction SilentlyContinue
+            if (-not $runspace) { continue }
+            try { $runspace.Close() } catch { <# already gone #> }
+            try { $runspace.Dispose() } catch { <# already gone #> }
+            Set-Variable -Name $name -Scope Script -Value $null
         }
     })
 

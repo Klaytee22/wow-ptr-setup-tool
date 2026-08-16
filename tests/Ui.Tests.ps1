@@ -770,8 +770,8 @@ Describe 'The planning queue' {
         #>
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
         $wanted = @('Get-PlanWorker', 'Stop-PlanRequest', 'Clear-AbandonedRequest', 'Start-PlanRequest',
-            'Start-NextPlan', 'Update-PlanProgress', 'Receive-PlanRequest', 'Complete-Planning',
-            'Write-StepCardState', 'Update-Summary', 'Invoke-Guarded', 'Write-Result')
+            'Start-PlanTimer', 'Start-NextPlan', 'Update-PlanProgress', 'Receive-PlanRequest',
+            'Complete-Planning', 'Write-StepCardState', 'Update-Summary', 'Invoke-Guarded', 'Write-Result')
         $text = foreach ($name in $wanted) {
             $found = @($ast.FindAll({
                         param($node)
@@ -800,6 +800,7 @@ Describe 'The planning queue' {
         $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
         $script:Worker = $null; $script:PlanJob = $null; $script:PlanToken = 0
         $script:PlanQueue = $null; $script:PlanTotal = 0; $script:PlanDone = 0
+        $script:PlanWaits = 0
         $script:AsyncBroken = $false
         $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
         $script:PlanTimer = [pscustomobject]@{ Started = $false }
@@ -829,6 +830,118 @@ Describe 'The planning queue' {
         Assert-True ($ui.SummaryText.Text -notmatch 'Working out') "Left on: $($ui.SummaryText.Text)"
         Assert-True $ui.ApplyButton.IsEnabled 'Apply should be usable once every selected step has a plan.'
         Assert-True ($ui.ResultsBox.Lines -notmatch '\[fail\]') "The planner reported: $($ui.ResultsBox.Lines)"
+    }
+
+    It 'waits for the worker instead of colliding with a request that is still stopping' {
+        <#
+            Stop-PlanRequest calls BeginStop and returns; the pipeline can still
+            be winding down after it. Sending the next step to the same runspace
+            at that moment is what produced "[fail] Could not work out
+            <step>: ... the pipeline was not run because a pipeline is already
+            running" — a message about pipelines against a step the user had
+            done nothing to.
+
+            A real runspace, genuinely held busy, so this is the runspace's own
+            idea of busy rather than a stand-in for it.
+        #>
+        . (Use-Planner)
+
+        $control = { [pscustomobject]@{ Text = ''; Value = 0; IsIndeterminate = $false; IsEnabled = $false } }
+        $ui = @{ ResultsBox = [pscustomobject]@{ Lines = '' }; ProgressBar = (& $control)
+            SummaryText = (& $control); PreviewButton = (& $control); ApplyButton = (& $control)
+        }
+        Add-Member -InputObject $ui.ResultsBox -MemberType ScriptMethod -Name AppendText -Value { param($t) $this.Lines += $t } -Force
+        Add-Member -InputObject $ui.ResultsBox -MemberType ScriptMethod -Name ScrollToEnd -Value { } -Force
+        function Set-StepCardState { param($Card, $Step, $Status, $Actions) }
+
+        $script:ModulePath = Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+        $script:Plans = @{}
+        $script:Cards = @{}
+        $script:Abandoned = [System.Collections.Generic.List[psobject]]::new()
+        $script:PlanJob = $null; $script:PlanToken = 0
+        $script:PlanTotal = 1; $script:PlanDone = 0; $script:PlanWaits = 0
+        $script:AsyncBroken = $false
+        $script:Selected = [System.Collections.Generic.HashSet[string]]::new()
+        $script:PlanTimer = [pscustomobject]@{ Started = $false }
+        Add-Member -InputObject $script:PlanTimer -MemberType ScriptMethod -Name Start -Value { $this.Started = $true } -Force
+        Add-Member -InputObject $script:PlanTimer -MemberType ScriptMethod -Name Stop -Value { $this.Started = $false } -Force
+
+        $root = New-FakeWowRoot -Parent $script:TestDrive
+        $script:Context = New-FakeContext -Root $root
+        $stepId = @((Get-PtrSetupStep | Where-Object { $_.Mode -eq 'auto' }).Id)[0]
+        foreach ($step in (Get-PtrSetupStep)) { $script:Cards[$step.Id] = @{} }
+
+        # The worker the window would already be holding, loaded the same way.
+        $script:Worker = [runspacefactory]::CreateRunspace()
+        $script:Worker.ThreadOptions = 'ReuseThread'
+        $script:Worker.Open()
+        $loader = [powershell]::Create()
+        $loader.Runspace = $script:Worker
+        $null = $loader.AddScript('param($ModulePath) Import-Module $ModulePath -Force').AddArgument($script:ModulePath)
+        $null = $loader.Invoke()
+        Assert-Equal 0 @($loader.Streams.Error).Count "The worker could not load the module: $($loader.Streams.Error)"
+        $loader.Dispose()
+
+        $gate = [hashtable]::Synchronized(@{ Started = $false; Stop = $false })
+        $busy = [powershell]::Create()
+        $busy.Runspace = $script:Worker
+        $null = $busy.AddScript({
+                param($Gate)
+                $Gate['Started'] = $true
+                while (-not $Gate['Stop']) { Start-Sleep -Milliseconds 10 }
+            }).AddArgument($gate)
+        $busyHandle = $busy.BeginInvoke()
+
+        try {
+            $waited = 0
+            while (-not $gate['Started'] -and $waited -lt 500) { Start-Sleep -Milliseconds 10; $waited++ }
+            Assert-True $gate['Started'] 'The worker never got busy, so this proves nothing.'
+
+            $script:PlanQueue = [System.Collections.Generic.Queue[string]]::new()
+            $script:PlanQueue.Enqueue($stepId)
+
+            Start-NextPlan
+
+            Assert-True ($null -eq $script:PlanJob) 'A plan must not be sent to a runspace that is still busy.'
+            Assert-Equal 1 $script:PlanQueue.Count 'The step has to stay on the queue to be sent later.'
+            Assert-True $script:PlanTimer.Started 'Without the tick, a deferred step would never start.'
+
+            # A tick with nothing in flight has to drive the queue on, not decide
+            # planning is finished and stop.
+            $before = $script:PlanWaits
+            Receive-PlanRequest
+            Assert-True ($script:PlanWaits -gt $before) 'The tick must retry a step that is waiting for the worker.'
+            Assert-Equal 1 $script:PlanQueue.Count 'It is still busy, so the step should still be waiting.'
+        }
+        finally {
+            $gate['Stop'] = $true
+            try { $null = $busy.EndInvoke($busyHandle) } catch { <# stopping is enough #> }
+            $busy.Dispose()
+        }
+
+        try {
+            $waited = 0
+            while ($script:Worker.RunspaceAvailability -ne 'Available' -and $waited -lt 500) {
+                Start-Sleep -Milliseconds 10; $waited++
+            }
+            Assert-Equal 'Available' ([string]$script:Worker.RunspaceAvailability) 'The worker never came free.'
+
+            # Free now, so the next tick sends it.
+            Receive-PlanRequest
+            Assert-True ($null -ne $script:PlanJob) 'Once the worker is free the waiting step should go out.'
+            Assert-Equal 0 $script:PlanQueue.Count
+
+            $spins = 0
+            while ($script:PlanTimer.Started -and $spins -lt 600) {
+                Start-Sleep -Milliseconds 20
+                Receive-PlanRequest
+                $spins++
+            }
+            Assert-True ($spins -lt 600) 'The queue never drained.'
+            Assert-True ($script:Plans.ContainsKey($stepId)) "$stepId was left pending."
+            Assert-True ($ui.ResultsBox.Lines -notmatch 'pipeline') "The planner reported: $($ui.ResultsBox.Lines)"
+        }
+        finally { $script:Worker.Dispose(); $script:Worker = $null }
     }
 }
 
@@ -966,5 +1079,126 @@ Describe 'Applying on the worker' {
         $text = Get-Content -LiteralPath $scriptPath -Raw
         Assert-True ($text -match 'Invoke-RunHere') 'A machine that will not give a runspace should still be able to apply.'
         Assert-True ($text -match 'function Complete-Run') 'Both paths must put the window back together the same way.'
+    }
+}
+
+Describe 'One runspace each, so a plan and a run cannot collide' {
+    <#
+        A runspace runs one pipeline at a time. With a single worker shared
+        between the planner and Apply, a plan still in flight when Apply started
+        made the run fail with "the pipeline was not run because a pipeline is
+        already running" — reported against whichever step happened to be first,
+        which told the user nothing.
+
+        Both halves are checked: that the two accessors really do hand back
+        different runspaces, driven for real here, and that the run path asks
+        the right one for it.
+    #>
+
+    function New-WorkerHarness {
+        <#
+            The three functions lifted out of the window and given somewhere to
+            live: they touch runspaces and $script: state and nothing of WPF, so
+            they run anywhere PowerShell does.
+        #>
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $source = foreach ($name in @('New-LoadedRunspace', 'Get-PlanWorker', 'Get-RunWorker')) {
+            $found = @($ast.FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+                    }, $true))
+            Assert-Equal 1 $found.Count "Expected exactly one $name."
+            $found[0].Extent.Text
+        }
+
+        $body = [scriptblock]::Create(@"
+param(`$ModulePath)
+Set-StrictMode -Version Latest
+`$script:ModulePath = `$ModulePath
+`$script:AsyncBroken = `$false
+`$script:Worker = `$null
+`$script:RunWorker = `$null
+function Write-Result { param([Parameter(Position = 0)] [string] `$Text) }
+$($source -join "`n`n")
+"@)
+        return (New-Module -ScriptBlock $body -ArgumentList (Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'))
+    }
+
+    It 'hands the planner and the run different runspaces' {
+        $harness = New-WorkerHarness
+        $plan = & $harness { Get-PlanWorker }
+        $run = & $harness { Get-RunWorker }
+        try {
+            Assert-True ($null -ne $plan) 'The planner should get a runspace.'
+            Assert-True ($null -ne $run) 'The run should get a runspace.'
+            Assert-True ($plan.InstanceId -ne $run.InstanceId) `
+                'Sharing one runspace is what made a run fail with "a pipeline is already running".'
+
+            # Asked again, each keeps the one it already has rather than opening
+            # a fresh one per request.
+            Assert-Equal $plan.InstanceId (& $harness { Get-PlanWorker }).InstanceId
+            Assert-Equal $run.InstanceId (& $harness { Get-RunWorker }).InstanceId
+
+            # And the thing the user actually hit: a plan still going while
+            # Apply starts. The gate holds the plan open rather than sleeping a
+            # fixed time, so the run really does begin mid-plan.
+            $gate = [hashtable]::Synchronized(@{ Started = $false; Stop = $false })
+            $planShell = [powershell]::Create()
+            $planShell.Runspace = $plan
+            $null = $planShell.AddScript({
+                    param($Gate)
+                    $Gate['Started'] = $true
+                    while (-not $Gate['Stop']) { Start-Sleep -Milliseconds 10 }
+                }).AddArgument($gate)
+            $planHandle = $planShell.BeginInvoke()
+
+            try {
+                $waited = 0
+                while (-not $gate['Started'] -and $waited -lt 500) { Start-Sleep -Milliseconds 10; $waited++ }
+                Assert-True $gate['Started'] 'The plan never got going, so this proves nothing.'
+
+                $runShell = [powershell]::Create()
+                $runShell.Runspace = $run
+                $null = $runShell.AddScript('42')
+                $answer = @($runShell.EndInvoke($runShell.BeginInvoke()))
+                $runShell.Dispose()
+                Assert-Equal 42 $answer[0] 'A run must go through with a plan still in flight.'
+            }
+            finally {
+                $gate['Stop'] = $true
+                try { $null = $planShell.EndInvoke($planHandle) } catch { <# stopping is enough #> }
+                $planShell.Dispose()
+            }
+        }
+        finally {
+            foreach ($runspace in @($plan, $run)) {
+                if ($runspace) { try { $runspace.Dispose() } catch { <# already gone #> } }
+            }
+        }
+    }
+
+    It 'asks for its own runspace on each path' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $accessors = @('Get-PlanWorker', 'Get-RunWorker')
+
+        $asked = @{}
+        foreach ($name in @('Start-NextPlan', 'Invoke-Run')) {
+            $found = @($ast.FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+                    }, $true))
+            Assert-Equal 1 $found.Count "Expected exactly one $name."
+
+            $called = @($found[0].FindAll({
+                        param($node)
+                        $node -is [System.Management.Automation.Language.CommandAst]
+                    }, $true) | ForEach-Object { $_.GetCommandName() } |
+                    Where-Object { $accessors -contains $_ } | Sort-Object -Unique)
+            Assert-Equal 1 $called.Count "$name should ask for exactly one worker, not $($called.Count)."
+            $asked[$name] = $called[0]
+        }
+
+        Assert-True ($asked['Start-NextPlan'] -cne $asked['Invoke-Run']) `
+            'The planner and the run must not fetch the same runspace, or their pipelines collide.'
     }
 }
