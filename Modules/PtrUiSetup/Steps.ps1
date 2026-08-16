@@ -254,20 +254,9 @@ $script:PtrSetupSteps = @(
     } `
         -Plan {
         param($Context)
-        $sourceDir = Get-ContextAccountPath -Context $Context -Side 'Source'
-        if (-not $sourceDir) { return @() }
-
-        $actions = [System.Collections.Generic.List[psobject]]::new()
-        foreach ($action in (New-MacroNameFixPlan -Path (Join-Path $sourceDir 'macros-cache.txt') -Scope 'Account')) {
-            $actions.Add($action)
-        }
-        foreach ($pair in (Get-ContextCharacter -Context $Context)) {
-            $characterDir = Get-WowCharacterPath -Install $Context.Source -Character $pair.Source
-            foreach ($action in (New-MacroNameFixPlan -Path (Join-Path $characterDir 'macros-cache.txt') -Scope 'Character')) {
-                $actions.Add($action)
-            }
-        }
-        return @($actions)
+        # Every file in one call: they share a namespace in game, so a name used
+        # in two of them has to be settled between them rather than in each.
+        return @(New-MacroNameFixPlan -File (Get-LiveMacroCachePath -Context $Context))
     } `
         -Status {
         param($Context)
@@ -275,14 +264,10 @@ $script:PtrSetupSteps = @(
             return New-PtrSetupStepStatus -State 'blocked' -Detail 'Pick a live client and an account folder first.'
         }
 
-        $shared = 0
-        $macros = 0
-        foreach ($path in (Get-LiveMacroCachePath -Context $Context)) {
-            foreach ($conflict in (Get-MacroNameConflict -Text (Read-TextFileUtf8 -Path $path))) {
-                $shared++
-                $macros += $conflict.Count
-            }
-        }
+        $conflicts = @(Get-LiveMacroNameConflict -File (Get-LiveMacroCachePath -Context $Context))
+        $shared = $conflicts.Count
+        $macros = (@($conflicts | ForEach-Object { $_.Count }) | Measure-Object -Sum).Sum
+        if (-not $macros) { $macros = 0 }
 
         if ($shared -eq 0) {
             return New-PtrSetupStepStatus -State 'done' -Detail 'Every macro on the live client already has a name of its own.'

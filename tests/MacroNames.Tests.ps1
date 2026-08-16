@@ -160,27 +160,106 @@ Describe 'Breaking the ties' {
 
 Describe 'Planning the fix on the live client' {
 
+    function New-CacheFile {
+        param([string] $Name, [string[]] $MacroName, [string] $Scope = 'Account')
+        [pscustomobject]@{
+            Path  = (New-TestFile -Path (Join-Path $script:TestDrive $Name) -Content (New-MacroCache -Name $MacroName))
+            Scope = $Scope
+        }
+    }
+
     It 'plans a rewrite of the file where it already sits' {
-        $path = New-TestFile -Path (Join-Path $script:TestDrive 'macros-cache.txt') -Content (New-MacroCache)
-        $plan = @(New-MacroNameFixPlan -Path $path)
+        $file = New-CacheFile -Name 'macros-cache.txt' -MacroName @(' ', ' ', ' ')
+        $plan = @(New-MacroNameFixPlan -File @($file))
         Assert-Equal 1 $plan.Count
         Assert-Equal 'overwrite' $plan[0].Kind
-        Assert-Equal $path $plan[0].Destination 'It must rewrite the file in place, not copy it somewhere.'
+        Assert-Equal $file.Path $plan[0].Destination 'It must rewrite the file in place, not copy it somewhere.'
         Assert-Equal '' $plan[0].Source 'It must carry content rather than copy the conflicted original.'
     }
 
     It 'plans nothing when the names are already unique' {
-        $path = New-TestFile -Path (Join-Path $script:TestDrive 'macros-cache.txt') -Content (New-MacroCache -Name @('one', 'two'))
-        Assert-Equal 0 @(New-MacroNameFixPlan -Path $path).Count
+        $file = New-CacheFile -Name 'macros-cache.txt' -MacroName @('one', 'two')
+        Assert-Equal 0 @(New-MacroNameFixPlan -File @($file)).Count
     }
 
     It 'plans nothing at all for a file that is not there' {
-        Assert-Equal 0 @(New-MacroNameFixPlan -Path (Join-Path $script:TestDrive 'missing.txt')).Count
+        $missing = [pscustomobject]@{ Path = (Join-Path $script:TestDrive 'missing.txt'); Scope = 'Account' }
+        Assert-Equal 0 @(New-MacroNameFixPlan -File @($missing)).Count
     }
 
-    It 'says how much it is changing' {
-        $path = New-TestFile -Path (Join-Path $script:TestDrive 'macros-cache.txt') -Content (New-MacroCache -Name @(' ', ' ', ' ', 'weps'))
-        $plan = @(New-MacroNameFixPlan -Path $path)
+    It 'says how many it is renaming' {
+        $file = New-CacheFile -Name 'macros-cache.txt' -MacroName @(' ', ' ', ' ', 'weps')
+        $plan = @(New-MacroNameFixPlan -File @($file))
         Assert-True ($plan[0].Note -match '2 macro') "The note should count what changes: $($plan[0].Note)"
+    }
+
+    It 'breaks a tie that spans the account and character files' {
+        # The one this exists for. Each file is fine on its own — one "CORE"
+        # apiece — but in game they are one namespace, and an action bar saver
+        # reports "found 2 macros named CORE".
+        $account = New-CacheFile -Name 'account.txt' -MacroName @('CORE', 'other')
+        $character = New-CacheFile -Name 'char.txt' -MacroName @('CORE', 'mine') -Scope 'Character'
+
+        Assert-Equal 0 @(Get-MacroNameConflict -Text (Get-Content -LiteralPath $account.Path -Raw)).Count `
+            'Neither file conflicts with itself, which is what made this invisible.'
+
+        $plan = @(New-MacroNameFixPlan -File @($account, $character))
+        Assert-Equal 1 $plan.Count 'Only the character file should change — the account file keeps its name.'
+        Assert-Equal $character.Path $plan[0].Destination
+
+        $names = @(Get-MacroCacheEntry -Text $plan[0].Content | ForEach-Object { $_.Name })
+        Assert-True ($names[0] -cne 'CORE') 'The character copy still holds the account name.'
+        Assert-True ($names[0].StartsWith('CORE')) "The visible text changed: [$($names[0])]"
+    }
+
+    It 'settles the whole set against itself, not file by file' {
+        $account = New-CacheFile -Name 'account.txt' -MacroName @(' ', ' ')
+        $one = New-CacheFile -Name 'one.txt' -MacroName @(' ') -Scope 'Character'
+        $two = New-CacheFile -Name 'two.txt' -MacroName @(' ') -Scope 'Character'
+
+        # Apply the plan, then read every name back off disk — the rewritten
+        # files for the ones that changed, the original for any that did not.
+        foreach ($action in (New-MacroNameFixPlan -File @($account, $one, $two))) {
+            Write-TextFileNoBom -Path $action.Destination -Content $action.Content
+        }
+        $all = foreach ($file in @($account, $one, $two)) {
+            Get-MacroCacheEntry -Text (Get-Content -LiteralPath $file.Path -Raw) | ForEach-Object { $_.Name }
+        }
+        Assert-Equal 4 @($all).Count
+        Assert-Equal @($all).Count @($all | Select-Object -Unique).Count `
+            'Two macros somewhere in the set still share a name.'
+    }
+
+    It 'leaves the account file alone and moves the character one' {
+        $account = New-CacheFile -Name 'account.txt' -MacroName @('CORE')
+        $character = New-CacheFile -Name 'char.txt' -MacroName @('CORE') -Scope 'Character'
+        $before = Get-Content -LiteralPath $account.Path -Raw
+
+        $plan = @(New-MacroNameFixPlan -File @($account, $character))
+        Assert-Equal 1 $plan.Count
+        Assert-Equal $before (Get-Content -LiteralPath $account.Path -Raw) 'Planning must not write anything.'
+        Assert-Equal $character.Path $plan[0].Destination 'The account file should be the one that keeps the name.'
+    }
+
+    It 'counts conflicts across the set, not within each file' {
+        $account = New-CacheFile -Name 'account.txt' -MacroName @('CORE')
+        $character = New-CacheFile -Name 'char.txt' -MacroName @('CORE') -Scope 'Character'
+        $conflicts = @(Get-LiveMacroNameConflict -File @($account, $character))
+        Assert-Equal 1 $conflicts.Count
+        Assert-Equal 'CORE' $conflicts[0].Name
+        Assert-Equal 2 $conflicts[0].Count
+    }
+
+    It 'changes nothing on a second pass over the set' {
+        $account = New-CacheFile -Name 'account.txt' -MacroName @(' ', ' ', 'CORE')
+        $character = New-CacheFile -Name 'char.txt' -MacroName @(' ', 'CORE') -Scope 'Character'
+
+        foreach ($action in (New-MacroNameFixPlan -File @($account, $character))) {
+            Write-TextFileNoBom -Path $action.Destination -Content $action.Content
+        }
+        Assert-Equal 0 @(New-MacroNameFixPlan -File @($account, $character)).Count `
+            'A second pass wanted to rewrite, so every Apply would report work forever.'
+        Assert-Equal 0 @(Get-LiveMacroNameConflict -File @($account, $character)).Count `
+            'Conflicts survived the fix.'
     }
 }

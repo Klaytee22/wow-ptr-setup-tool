@@ -70,6 +70,7 @@
         'Get-MacroNameConflict'
         'Resolve-MacroNameConflict'
         'New-MacroNameFixPlan'
+        'Get-LiveMacroNameConflict'
         'Get-LiveMacroCachePath'
         'Get-ActionBarAddOn'
         'New-PtrSetupContext'
