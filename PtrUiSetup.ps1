@@ -33,6 +33,39 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+function Get-ToolVersion {
+    <#
+    .SYNOPSIS
+        The version out of the module manifest, or a word saying it could not be
+        read.
+
+    .DESCRIPTION
+        Read from the manifest rather than kept as a second constant here, so
+        the version lives in one place and a release cannot disagree with the
+        thing it shipped.
+
+        Guarded to the hilt because the crash log calls it: throwing in there
+        would lose the report it is in the middle of writing, which is the one
+        thing that must not happen.
+
+    .PARAMETER Root
+        The folder the manifest sits under. Defaults to this script's own, and
+        exists so the tests can point it at a folder they control — including
+        one with no manifest in it, which is the case that has to not throw.
+    #>
+    param([AllowNull()] [AllowEmptyString()] [string] $Root = $PSScriptRoot)
+
+    try {
+        if (-not $Root) { return 'unknown' }
+        $manifest = Join-Path $Root 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+        if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return 'unknown (manifest missing)' }
+        $version = (Import-PowerShellDataFile -LiteralPath $manifest).ModuleVersion
+        if (-not $version) { return 'unknown' }
+        return [string]$version
+    }
+    catch { return 'unknown' }
+}
+
 # Anything that gets out of the window's own guards ends the script, and when it
 # has been double-clicked the console goes with it — the message is on screen for
 # whatever fraction of a second the process has left. This catches it, writes it
@@ -53,6 +86,7 @@ trap {
     }
     $lines.Add('')
     $lines.Add('Environment')
+    $lines.Add("  Tool       : $(Get-ToolVersion)")
     $lines.Add("  PowerShell : $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))")
     $lines.Add("  OS         : $([System.Environment]::OSVersion.VersionString)")
     $lines.Add("  64-bit     : $([System.Environment]::Is64BitProcess)")

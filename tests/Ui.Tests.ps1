@@ -314,6 +314,49 @@ Describe 'The window and its XAML' {
         Assert-True ($text -match 'Save-PtrSetupSetting') 'A corrected folder should be remembered.'
     }
 
+    It 'puts a version in the crash log, and never throws getting it' {
+        # The log is what places a report against a build, so the version has to
+        # be in it — and it is read inside the trap that writes that log, where
+        # throwing would lose the report it is in the middle of writing.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $function = @($ast.FindAll({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Get-ToolVersion'
+                }, $true))
+        Assert-Equal 1 $function.Count 'Expected one Get-ToolVersion.'
+        . ([scriptblock]::Create($function[0].Extent.Text))
+
+        # The real manifest, read the way the window reads it.
+        $manifest = Join-Path $repoRoot 'Modules/PtrUiSetup/PtrUiSetup.psd1'
+        $expected = [string](Import-PowerShellDataFile -LiteralPath $manifest).ModuleVersion
+        Assert-True ([bool]$expected) 'The manifest should carry a ModuleVersion.'
+        Assert-Equal $expected (Get-ToolVersion -Root $repoRoot)
+
+        # A folder with no manifest in it says so, rather than just "unknown".
+        # That is the half-extracted zip — somebody ran the launcher out of a
+        # folder that never got the rest of the files — and it is worth telling
+        # apart from a manifest that is there and will not read.
+        $empty = Join-Path $script:TestDrive 'empty'
+        $null = New-Item -ItemType Directory -Path $empty -Force
+        Assert-Equal 'unknown (manifest missing)' (Get-ToolVersion -Root $empty)
+
+        # And nothing here may throw, whatever it is pointed at.
+        foreach ($root in @((Join-Path $script:TestDrive 'nope'), '', $null)) {
+            $answer = Get-ToolVersion -Root $root
+            Assert-True ([bool]$answer) "Get-ToolVersion returned nothing for '$root'."
+            Assert-True ($answer -like 'unknown*') "Expected 'unknown' for '$root', got '$answer'."
+        }
+
+        # And the trap actually records it.
+        $trap = @($ast.FindAll({
+                    param($node) $node -is [System.Management.Automation.Language.TrapStatementAst]
+                }, $true))
+        Assert-Equal 1 $trap.Count 'Expected one trap around startup.'
+        Assert-True ($trap[0].Extent.Text -match 'Get-ToolVersion') `
+            'The crash log needs the version in it, or a report cannot be placed against a build.'
+    }
+
     It 'checks for an STA thread before asking WPF for a window' {
         # Only Start-PtrUiSetup.cmd passes -STA. Someone running the script from
         # an MTA session should be told what to do, not handed a WPF stack trace.

@@ -1,6 +1,6 @@
 ﻿@{
     RootModule        = 'PtrUiSetup.psm1'
-    ModuleVersion     = '1.1.0'
+    ModuleVersion     = '1.0.0'
     GUID              = 'b6f4a1c2-7d3e-4a58-9c21-8f0d5e6a7b31'
     Author            = 'Klaytee22'
     Description       = 'Copies a live World of Warcraft client''s UI, addons and settings onto the PTR client.'
